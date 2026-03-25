@@ -1,0 +1,35 @@
+app/
+├── (dashboard)/						# trang dashboard sau khi login, chia ra 2 luồng cho admin và student
+│   ├── admin/
+│   │   └── dashboard/
+│   │       ├── admin-account/			# trang chỉnh sửa thông tin accounts của các admin
+│   │       ├── settings/				# trang option, có thể thêm face-id cho tài khoản admin
+│   │       ├── student/				# trang chỉnh sửa thông tin sinh viên cho admin
+│   │       ├── layout.tsx
+│   │       └── page.tsx
+│   │
+│   └── student/
+│       └── dashboard/					# trang xem thông tin tài khoản dành cho sinh viên
+│           ├── layout.tsx
+│           └── page.tsx
+│
+├── (public)/
+│   ├── layout.tsx
+│   └── login/
+│       ├── layout.tsx
+│       └── page.tsx
+│
+├── ui/									# chứa tất cả các components của website để cho phần layout.tsx và page.tsx của website sử dụng
+│   ├── admin/
+│   ├── dashboard/
+│   ├── home/
+│   ├── login/
+│   ├── settings/
+│   ├── student/
+│   ├── student-dashboard/
+│   ├── favicon.ico
+│   ├── fonts.ts
+│   └── globals.css
+│
+├── layout.tsx
+└── page.tsx
