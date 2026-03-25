@@ -73,3 +73,6 @@ next-env.d.ts
 .claude/
 CLAUDE.md
 AGENTS.md
+
+id_ed25519_work
+id_ed25519_work.pub
