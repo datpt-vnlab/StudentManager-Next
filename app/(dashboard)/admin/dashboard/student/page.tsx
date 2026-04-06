@@ -1,32 +1,8 @@
-import { requireRole } from "@/app/lib/auth";
-import StudentTable, { type Student } from "@/app/ui/student/table";
-
-const MOCK_STUDENTS: Student[] = [
-	{
-		id: "STU20260001",
-		first_name: "Elena",
-		last_name: "Rodriguez",
-		email: "elena.r@editorial.edu",
-		status: "Active",
-	},
-	{
-		id: "STU20260042",
-		first_name: "Julian",
-		last_name: "Montgomery",
-		email: "j.mont@editorial.edu",
-		status: "Suspended",
-	},
-	{
-		id: "STU20260098",
-		first_name: "Sarah",
-		last_name: "Tanaka",
-		email: "stanaka@editorial.edu",
-		status: "Graduated",
-	},
-];
+import { getAdminStudents } from "@/app/lib/admin-students";
+import StudentTable from "@/app/ui/student/table";
 
 export default async function StudentRegistryPage() {
-	await requireRole("admin");
+	const students = await getAdminStudents();
 
 	return (
 		<section className="p-8 flex-1 bg-surface">
@@ -39,7 +15,7 @@ export default async function StudentRegistryPage() {
 				</p>
 			</div>
 
-			<StudentTable students={MOCK_STUDENTS} />
+			<StudentTable students={students} />
 		</section>
 	);
 }

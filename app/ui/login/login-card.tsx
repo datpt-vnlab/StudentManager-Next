@@ -171,6 +171,7 @@ export default function LoginCard() {
 	const [adminOTP, setAdminOTP] = useState("");
 	const [rememberMe, setRememberMe] = useState(false);
 	const [otpSent, setOtpSent] = useState(false);
+	const [otpCooldown, setOtpCooldown] = useState(0);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isSendingOtp, setIsSendingOtp] = useState(false);
 	const [errorMessage, setErrorMessage] = useState("");
@@ -182,6 +183,32 @@ export default function LoginCard() {
 	const resetMessages = () => {
 		setErrorMessage("");
 		setSuccessMessage("");
+	};
+
+	useEffect(() => {
+		if (otpCooldown <= 0) {
+			return;
+		}
+
+		const timer = window.setTimeout(() => {
+			setOtpCooldown((seconds) => seconds - 1);
+		}, 1000);
+
+		return () => window.clearTimeout(timer);
+	}, [otpCooldown]);
+
+	const getAdminEmailError = (value: string) => {
+		const email = value.trim();
+
+		if (!email) {
+			return "Enter your admin email first.";
+		}
+
+		if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+			return "Enter a complete admin email address.";
+		}
+
+		return null;
 	};
 
 	const handleStudentLogin = async () => {
@@ -205,8 +232,17 @@ export default function LoginCard() {
 	};
 
 	const handleSendAdminOtp = async () => {
-		if (!adminId.trim()) {
-			setErrorMessage("Enter your admin email first.");
+		const emailError = getAdminEmailError(adminId);
+
+		if (emailError) {
+			setErrorMessage(emailError);
+			return;
+		}
+
+		if (otpCooldown > 0) {
+			setErrorMessage(
+				`Wait ${otpCooldown}s before requesting another OTP.`,
+			);
 			return;
 		}
 
@@ -230,6 +266,7 @@ export default function LoginCard() {
 			}
 
 			setOtpSent(true);
+			setOtpCooldown(30);
 			setSuccessMessage("OTP sent to your email.");
 		} catch (error) {
 			setErrorMessage(
@@ -277,8 +314,15 @@ export default function LoginCard() {
 				return;
 			}
 
-			if (!adminId.trim() || !adminOTP.trim()) {
-				setErrorMessage("Enter your admin email and OTP.");
+			const emailError = getAdminEmailError(adminId);
+
+			if (emailError) {
+				setErrorMessage(emailError);
+				return;
+			}
+
+			if (!adminOTP.trim()) {
+				setErrorMessage("Enter the OTP sent to your admin email.");
 				return;
 			}
 
@@ -412,9 +456,10 @@ export default function LoginCard() {
 										type="email"
 										placeholder="admin@scholar-slate.edu"
 										value={adminId}
-										onChange={(e) =>
-											setAdminId(e.target.value)
-										}
+										onChange={(e) => {
+											setAdminId(e.target.value);
+											setErrorMessage("");
+										}}
 										disabled={isSubmitting || isSendingOtp}
 										className="w-full pl-12 pr-4 py-3 bg-surface-container-highest border-none rounded-lg focus:ring-2 focus:ring-primary/40 focus:bg-white transition-all text-sm outline-none"
 									/>
@@ -428,14 +473,20 @@ export default function LoginCard() {
 									<button
 										type="button"
 										onClick={handleSendAdminOtp}
-										disabled={isSubmitting || isSendingOtp}
+										disabled={
+											isSubmitting ||
+											isSendingOtp ||
+											otpCooldown > 0
+										}
 										className="text-[10px] font-bold text-primary hover:underline"
 									>
 										{isSendingOtp
 											? "Sending..."
-											: otpSent
-												? "Resend"
-												: "Send OTP"}
+											: otpCooldown > 0
+												? `Resend in ${otpCooldown}s`
+												: otpSent
+													? "Resend OTP"
+													: "Send OTP"}
 									</button>
 								</div>
 								<div className="relative">
