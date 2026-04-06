@@ -1,5 +1,4 @@
-// Server Component: fetches admin data, passes to ui/admin/table
-// TODO: replace with fetch("http://localhost:3001/admins", { cache: "no-store" })
+import { requireRole } from "@/app/lib/auth";
 import AdminTable, { type Admin } from "@/app/ui/admin/table";
 
 const MOCK_ADMINS: Admin[] = [
@@ -20,7 +19,9 @@ const MOCK_ADMINS: Admin[] = [
 	},
 ];
 
-export default function AdminAccountsPage() {
+export default async function AdminAccountsPage() {
+	await requireRole("admin");
+
 	return (
 		<section className="p-8 flex-1 bg-surface">
 			<div className="mb-8">

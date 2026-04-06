@@ -1,18 +1,95 @@
 "use client";
 
-// "use client" because the form needs controlled inputs (useState)
-// In the future, replace the onSubmit handler with a Server Action call
 import { useState } from "react";
 
-export default function ChangePasswordForm() {
+type ApiError = {
+	message?: string | string[];
+	error?: string;
+	errors?: string[];
+};
+
+async function getApiErrorMessage(response: Response) {
+	try {
+		const data = (await response.json()) as ApiError;
+
+		if (typeof data.message === "string" && data.message.trim()) {
+			return data.message;
+		}
+
+		if (Array.isArray(data.message) && data.message.length > 0) {
+			return data.message.join(", ");
+		}
+
+		if (typeof data.error === "string" && data.error.trim()) {
+			return data.error;
+		}
+
+		if (Array.isArray(data.errors) && data.errors.length > 0) {
+			return data.errors.join(", ");
+		}
+	} catch {
+		// Ignore invalid JSON and fall back to the status text.
+	}
+
+	return response.statusText || "Request failed.";
+}
+
+export default function ChangePasswordForm({ email }: { email: string }) {
 	const [current, setCurrent] = useState("");
 	const [next, setNext] = useState("");
 	const [confirm, setConfirm] = useState("");
+	const [errorMessage, setErrorMessage] = useState("");
+	const [successMessage, setSuccessMessage] = useState("");
+	const [isSubmitting, setIsSubmitting] = useState(false);
 
-	function handleSubmit(e: React.FormEvent) {
+	async function handleSubmit(e: React.FormEvent) {
 		e.preventDefault();
-		// TODO: call a Server Action or POST /api/student/password
-		console.log("Password change submitted");
+		setErrorMessage("");
+		setSuccessMessage("");
+
+		if (!current || !next || !confirm) {
+			setErrorMessage("Fill in all password fields.");
+			return;
+		}
+
+		if (next !== confirm) {
+			setErrorMessage("New password confirmation does not match.");
+			return;
+		}
+
+		setIsSubmitting(true);
+
+		try {
+			const response = await fetch("/api/student/me", {
+				body: JSON.stringify({
+					currentPassword: current,
+					email,
+					newPassword: next,
+				}),
+				cache: "no-store",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				method: "PATCH",
+			});
+
+			if (!response.ok) {
+				throw new Error(await getApiErrorMessage(response));
+			}
+
+			setCurrent("");
+			setNext("");
+			setConfirm("");
+			setSuccessMessage("Password updated successfully.");
+		} catch (error) {
+			setErrorMessage(
+				error instanceof Error
+					? error.message
+					: "Unable to update password.",
+			);
+		} finally {
+			setIsSubmitting(false);
+		}
 	}
 
 	return (
@@ -35,6 +112,7 @@ export default function ChangePasswordForm() {
 						type="password"
 						value={current}
 						onChange={(e) => setCurrent(e.target.value)}
+						disabled={isSubmitting}
 						placeholder="••••••••"
 						className="w-full bg-surface-container-highest border-none rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary/40 focus:bg-surface-container-lowest transition-all"
 					/>
@@ -47,6 +125,7 @@ export default function ChangePasswordForm() {
 						type="password"
 						value={next}
 						onChange={(e) => setNext(e.target.value)}
+						disabled={isSubmitting}
 						placeholder="Minimum 8 characters"
 						className="w-full bg-surface-container-highest border-none rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary/40 focus:bg-surface-container-lowest transition-all"
 					/>
@@ -59,15 +138,27 @@ export default function ChangePasswordForm() {
 						type="password"
 						value={confirm}
 						onChange={(e) => setConfirm(e.target.value)}
+						disabled={isSubmitting}
 						placeholder="••••••••"
 						className="w-full bg-surface-container-highest border-none rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary/40 focus:bg-surface-container-lowest transition-all"
 					/>
 				</div>
+				{errorMessage && (
+					<p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+						{errorMessage}
+					</p>
+				)}
+				{successMessage && (
+					<p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+						{successMessage}
+					</p>
+				)}
 				<button
 					type="submit"
+					disabled={isSubmitting}
 					className="w-full py-3 bg-primary text-white rounded-lg font-bold text-sm hover:bg-primary-container transition-colors shadow-lg shadow-primary/10 mt-2"
 				>
-					Update Password
+					{isSubmitting ? "Updating..." : "Update Password"}
 				</button>
 			</form>
 		</section>

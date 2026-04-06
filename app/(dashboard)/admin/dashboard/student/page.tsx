@@ -1,5 +1,4 @@
-// Server Component: fetches student data, passes to ui/student/table
-// TODO: replace with fetch("http://localhost:3001/students", { cache: "no-store" })
+import { requireRole } from "@/app/lib/auth";
 import StudentTable, { type Student } from "@/app/ui/student/table";
 
 const MOCK_STUDENTS: Student[] = [
@@ -26,7 +25,9 @@ const MOCK_STUDENTS: Student[] = [
 	},
 ];
 
-export default function StudentRegistryPage() {
+export default async function StudentRegistryPage() {
+	await requireRole("admin");
+
 	return (
 		<section className="p-8 flex-1 bg-surface">
 			<div className="mb-8">

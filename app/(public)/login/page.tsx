@@ -1,8 +1,10 @@
 // Server Component — only the LoginCard inside is "use client"
-import Link from "next/link";
+import { redirectIfAuthenticated } from "@/app/lib/auth";
 import LoginCard from "@/app/ui/login/login-card";
 
-export default function LoginPage() {
+export default async function LoginPage() {
+	await redirectIfAuthenticated();
+
 	return (
 		<div className="bg-background font-body text-on-background min-h-screen flex flex-col">
 			<main className="flex-grow flex items-center justify-center px-4 py-24">

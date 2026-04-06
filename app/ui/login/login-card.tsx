@@ -6,6 +6,31 @@ import { useState, useEffect } from "react";
 type Tab = "student" | "admin";
 type ScanState = "idle" | "scanning" | "success";
 
+type ApiError = {
+	message?: string;
+	error?: string;
+	errors?: string[];
+};
+
+async function getApiErrorMessage(response: Response) {
+	try {
+		const data = (await response.json()) as ApiError;
+		if (typeof data.message === "string" && data.message.trim()) {
+			return data.message;
+		}
+		if (typeof data.error === "string" && data.error.trim()) {
+			return data.error;
+		}
+		if (Array.isArray(data.errors) && data.errors.length > 0) {
+			return data.errors.join(", ");
+		}
+	} catch {
+		// Ignore invalid JSON and fall back to the status text.
+	}
+
+	return response.statusText || "Request failed.";
+}
+
 // ── Face Scan Overlay ────────────────────────────────────────────────────────
 
 function FaceScanOverlay({
@@ -21,7 +46,10 @@ function FaceScanOverlay({
 		// Mock: 2-second "scan" then success
 		const t1 = setTimeout(() => setState("success"), 2000);
 		const t2 = setTimeout(() => onSuccess(), 2800);
-		return () => { clearTimeout(t1); clearTimeout(t2); };
+		return () => {
+			clearTimeout(t1);
+			clearTimeout(t2);
+		};
 	}, [onSuccess]);
 
 	return (
@@ -32,7 +60,9 @@ function FaceScanOverlay({
 					onClick={onCancel}
 					className="absolute top-6 right-6 p-2 text-white/40 hover:text-white/80 transition-colors"
 				>
-					<span className="material-symbols-outlined text-2xl">close</span>
+					<span className="material-symbols-outlined text-2xl">
+						close
+					</span>
 				</button>
 			)}
 
@@ -73,7 +103,10 @@ function FaceScanOverlay({
 						<>
 							<div
 								className="absolute left-8 right-8 h-px bg-gradient-to-r from-transparent via-indigo-400 to-transparent"
-								style={{ animation: "faceScanLine 2s ease-in-out infinite" }}
+								style={{
+									animation:
+										"faceScanLine 2s ease-in-out infinite",
+								}}
 							/>
 							<style>{`
 								@keyframes faceScanLine {
@@ -91,7 +124,9 @@ function FaceScanOverlay({
 					<p
 						className={`font-semibold text-lg transition-colors duration-300 ${state === "success" ? "text-emerald-400" : "text-white"}`}
 					>
-						{state === "success" ? "Face Recognized" : "Face ID Login"}
+						{state === "success"
+							? "Face Recognized"
+							: "Face ID Login"}
 					</p>
 					<p className="text-white/50 text-sm mt-1">
 						{state === "success"
@@ -134,28 +169,129 @@ export default function LoginCard() {
 	const [studentPassword, setStudentPassword] = useState("");
 	const [adminId, setAdminId] = useState("");
 	const [adminOTP, setAdminOTP] = useState("");
+	const [rememberMe, setRememberMe] = useState(false);
+	const [otpSent, setOtpSent] = useState(false);
+	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [isSendingOtp, setIsSendingOtp] = useState(false);
+	const [errorMessage, setErrorMessage] = useState("");
+	const [successMessage, setSuccessMessage] = useState("");
 	const [showFaceScan, setShowFaceScan] = useState(false);
 
 	const router = useRouter();
 
-	const handleSubmit = (e: React.FormEvent) => {
-		e.preventDefault();
-		if (tab === "student") {
-			if (studentId && studentPassword && handleStudentLogin(studentId, studentPassword)) {
-				router.push("/student/dashboard");
+	const resetMessages = () => {
+		setErrorMessage("");
+		setSuccessMessage("");
+	};
+
+	const handleStudentLogin = async () => {
+		const response = await fetch("/api/auth/student/login", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			cache: "no-store",
+			body: JSON.stringify({
+				username: studentId,
+				password: studentPassword,
+				rememberMe,
+			}),
+		});
+
+		if (!response.ok) {
+			throw new Error(await getApiErrorMessage(response));
+		}
+		router.push("/student/dashboard");
+	};
+
+	const handleSendAdminOtp = async () => {
+		if (!adminId.trim()) {
+			setErrorMessage("Enter your admin email first.");
+			return;
+		}
+
+		resetMessages();
+		setIsSendingOtp(true);
+
+		try {
+			const response = await fetch("/api/auth/admin/otp/send", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				cache: "no-store",
+				body: JSON.stringify({
+					email: adminId,
+				}),
+			});
+
+			if (!response.ok) {
+				throw new Error(await getApiErrorMessage(response));
 			}
-		} else {
-			if (adminId && adminOTP && handleAdminLogin(adminId, adminOTP)) {
-				router.push("/admin/dashboard");
-			}
+
+			setOtpSent(true);
+			setSuccessMessage("OTP sent to your email.");
+		} catch (error) {
+			setErrorMessage(
+				error instanceof Error ? error.message : "Unable to send OTP.",
+			);
+		} finally {
+			setIsSendingOtp(false);
 		}
 	};
 
-	// Temporary — will be replaced with API calls
-	const handleStudentLogin = (id: string, password: string) =>
-		id === "student" && password === "student";
-	const handleAdminLogin = (id: string, otp: string) =>
-		id === "admin" && otp === "123456";
+	const handleAdminLogin = async () => {
+		const response = await fetch("/api/auth/admin/otp/verify", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			cache: "no-store",
+			body: JSON.stringify({
+				email: adminId,
+				otp: adminOTP,
+				rememberMe,
+			}),
+		});
+
+		if (!response.ok) {
+			throw new Error(await getApiErrorMessage(response));
+		}
+		router.push("/admin/dashboard");
+	};
+
+	const handleSubmit = async (e: React.FormEvent) => {
+		e.preventDefault();
+		resetMessages();
+		setIsSubmitting(true);
+
+		try {
+			if (tab === "student") {
+				if (!studentId.trim() || !studentPassword) {
+					setErrorMessage("Enter your student ID and password.");
+					return;
+				}
+
+				await handleStudentLogin();
+				// router.replace("/student/dashboard");
+				return;
+			}
+
+			if (!adminId.trim() || !adminOTP.trim()) {
+				setErrorMessage("Enter your admin email and OTP.");
+				return;
+			}
+
+			await handleAdminLogin();
+			// router.replace("/admin/dashboard");
+		} catch (error) {
+			setErrorMessage(
+				error instanceof Error ? error.message : "Unable to sign in.",
+			);
+		} finally {
+			setIsSubmitting(false);
+		}
+	};
 
 	const handleFaceScanSuccess = () => {
 		setShowFaceScan(false);
@@ -214,7 +350,11 @@ export default function LoginCard() {
 									<input
 										type="text"
 										placeholder="e.g. STU20260001"
-										onChange={(e) => setStudentId(e.target.value)}
+										value={studentId}
+										onChange={(e) =>
+											setStudentId(e.target.value)
+										}
+										disabled={isSubmitting}
 										className="w-full pl-12 pr-4 py-3 bg-surface-container-highest border-none rounded-lg focus:ring-2 focus:ring-primary/40 focus:bg-white transition-all text-sm outline-none"
 									/>
 								</div>
@@ -228,20 +368,31 @@ export default function LoginCard() {
 										lock
 									</span>
 									<input
-										type={showPassword ? "text" : "password"}
+										type={
+											showPassword ? "text" : "password"
+										}
 										placeholder="••••••••"
 										autoComplete="current-password"
 										name="password"
-										onChange={(e) => setStudentPassword(e.target.value)}
+										value={studentPassword}
+										onChange={(e) =>
+											setStudentPassword(e.target.value)
+										}
+										disabled={isSubmitting}
 										className="w-full pl-12 pr-12 py-3 bg-surface-container-highest border-none rounded-lg focus:ring-2 focus:ring-primary/40 focus:bg-white transition-all text-sm outline-none"
 									/>
 									<button
 										type="button"
-										onClick={() => setShowPassword((v) => !v)}
+										onClick={() =>
+											setShowPassword((v) => !v)
+										}
+										disabled={isSubmitting}
 										className="absolute right-4 top-1/2 -translate-y-1/2 text-outline hover:text-primary transition-colors"
 									>
 										<span className="material-symbols-outlined text-lg">
-											{showPassword ? "visibility_off" : "visibility"}
+											{showPassword
+												? "visibility_off"
+												: "visibility"}
 										</span>
 									</button>
 								</div>
@@ -260,7 +411,11 @@ export default function LoginCard() {
 									<input
 										type="email"
 										placeholder="admin@scholar-slate.edu"
-										onChange={(e) => setAdminId(e.target.value)}
+										value={adminId}
+										onChange={(e) =>
+											setAdminId(e.target.value)
+										}
+										disabled={isSubmitting || isSendingOtp}
 										className="w-full pl-12 pr-4 py-3 bg-surface-container-highest border-none rounded-lg focus:ring-2 focus:ring-primary/40 focus:bg-white transition-all text-sm outline-none"
 									/>
 								</div>
@@ -272,9 +427,15 @@ export default function LoginCard() {
 									</label>
 									<button
 										type="button"
+										onClick={handleSendAdminOtp}
+										disabled={isSubmitting || isSendingOtp}
 										className="text-[10px] font-bold text-primary hover:underline"
 									>
-										Resend
+										{isSendingOtp
+											? "Sending..."
+											: otpSent
+												? "Resend"
+												: "Send OTP"}
 									</button>
 								</div>
 								<div className="relative">
@@ -285,7 +446,11 @@ export default function LoginCard() {
 										type="text"
 										maxLength={6}
 										placeholder="000000"
-										onChange={(e) => setAdminOTP(e.target.value)}
+										value={adminOTP}
+										onChange={(e) =>
+											setAdminOTP(e.target.value)
+										}
+										disabled={isSubmitting}
 										className="w-full pl-12 pr-4 py-3 bg-surface-container-highest border-none rounded-lg focus:ring-2 focus:ring-primary/40 focus:bg-white transition-all text-sm outline-none tracking-[0.5em] font-mono"
 									/>
 								</div>
@@ -298,6 +463,11 @@ export default function LoginCard() {
 						<label className="flex items-center gap-2 cursor-pointer group">
 							<input
 								type="checkbox"
+								checked={rememberMe}
+								onChange={(e) =>
+									setRememberMe(e.target.checked)
+								}
+								disabled={isSubmitting || isSendingOtp}
 								className="w-4 h-4 rounded text-primary focus:ring-primary border-outline-variant/50 bg-surface-container-highest"
 							/>
 							<span className="text-xs text-on-surface-variant group-hover:text-on-surface transition-colors">
@@ -314,11 +484,26 @@ export default function LoginCard() {
 						)}
 					</div>
 
+					{errorMessage && (
+						<p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+							{errorMessage}
+						</p>
+					)}
+
+					{successMessage && (
+						<p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+							{successMessage}
+						</p>
+					)}
+
 					<button
 						type="submit"
+						disabled={isSubmitting}
 						className="w-full signature-gradient text-white font-semibold py-3.5 rounded-lg shadow-md hover:shadow-lg active:scale-[0.98] transition-all duration-200 text-sm"
 					>
-						Sign In to Dashboard
+						{isSubmitting
+							? "Signing In..."
+							: "Sign In to Dashboard"}
 					</button>
 
 					{/* Face ID — admin only */}
@@ -326,7 +511,9 @@ export default function LoginCard() {
 						<>
 							<div className="relative flex items-center gap-3">
 								<div className="flex-1 h-px bg-slate-200" />
-								<span className="text-xs text-slate-400 font-medium">or</span>
+								<span className="text-xs text-slate-400 font-medium">
+									or
+								</span>
 								<div className="flex-1 h-px bg-slate-200" />
 							</div>
 							<button

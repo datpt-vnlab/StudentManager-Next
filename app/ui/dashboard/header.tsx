@@ -1,10 +1,30 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 
-export default function Header({ children }: { children: ReactNode }) {
+export default function Header() {
 	const router = useRouter();
+	const [errorMessage, setErrorMessage] = useState("");
+	const [isPending, startTransition] = useTransition();
+
+	const handleLogout = async () => {
+		setErrorMessage("");
+
+		try {
+			await fetch("/api/auth/logout", {
+				cache: "no-store",
+				method: "POST",
+			});
+		} catch {
+			setErrorMessage("Unable to clear the current session cleanly.");
+		} finally {
+			startTransition(() => {
+				router.replace("/login");
+				router.refresh();
+			});
+		}
+	};
 
 	return (
 		<header className="fixed top-0 left-64 right-0 z-50 bg-white/80 backdrop-blur-xl h-16 border-b border-slate-200/20">
@@ -12,7 +32,8 @@ export default function Header({ children }: { children: ReactNode }) {
 				<div className="text-xl font-bold tracking-tight text-indigo-900 font-headline"></div>
 				<div className="flex items-center gap-4">
 					<button
-						onClick={() => router.push("/login")}
+						onClick={handleLogout}
+						disabled={isPending}
 						className="p-2 text-slate-500 hover:bg-slate-100/50 rounded-full transition-all active:scale-90"
 					>
 						<span className="material-symbols-outlined">
@@ -29,6 +50,11 @@ export default function Header({ children }: { children: ReactNode }) {
 					</div>
 				</div>
 			</div>
+			{errorMessage && (
+				<p className="absolute right-8 top-full mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 shadow-sm">
+					{errorMessage}
+				</p>
+			)}
 		</header>
 	);
 }
