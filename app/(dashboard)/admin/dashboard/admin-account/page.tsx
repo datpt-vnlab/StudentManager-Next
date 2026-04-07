@@ -1,26 +1,8 @@
-import { requireRole } from "@/app/lib/auth";
-import AdminTable, { type Admin } from "@/app/ui/admin/table";
-
-const MOCK_ADMINS: Admin[] = [
-	{
-		id: "#AD-001",
-		name: "Dr. Victoria Hartwell",
-		email: "v.hartwell@editorial.edu",
-	},
-	{
-		id: "#AD-002",
-		name: "Marcus Chen",
-		email: "m.chen@editorial.edu",
-	},
-	{
-		id: "#AD-003",
-		name: "Priya Nair",
-		email: "p.nair@editorial.edu",
-	},
-];
+import { getAdminAccounts } from "@/app/lib/admin-management";
+import AdminTable from "@/app/ui/admin/table";
 
 export default async function AdminAccountsPage() {
-	await requireRole("admin");
+	const admins = await getAdminAccounts();
 
 	return (
 		<section className="p-8 flex-1 bg-surface">
@@ -33,7 +15,7 @@ export default async function AdminAccountsPage() {
 				</p>
 			</div>
 
-			<AdminTable admins={MOCK_ADMINS} />
+			<AdminTable admins={admins} />
 		</section>
 	);
 }

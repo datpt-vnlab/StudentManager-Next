@@ -1,8 +1,8 @@
-import { requireRole } from "@/app/lib/auth";
+import { getAdminSettings } from "@/app/lib/admin-management";
 import SettingsPanel from "@/app/ui/settings/panel";
 
 export default async function SettingsPage() {
-	await requireRole("admin");
+	const settings = await getAdminSettings();
 
 	return (
 		<section className="p-8 flex-1 bg-surface">
@@ -12,7 +12,7 @@ export default async function SettingsPage() {
 				</h1>
 			</div>
 
-			<SettingsPanel />
+			<SettingsPanel initialSettings={settings} />
 		</section>
 	);
 }
