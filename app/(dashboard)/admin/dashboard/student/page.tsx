@@ -1,7 +1,8 @@
-import { getAdminStudents } from "@/app/lib/admin-students";
+import { getAdminMajors, getAdminStudents } from "@/app/lib/admin-students";
 import StudentTable from "@/app/ui/student/table";
 
 export default async function StudentRegistryPage() {
+	const majors = await getAdminMajors();
 	const students = await getAdminStudents();
 
 	return (
@@ -15,7 +16,7 @@ export default async function StudentRegistryPage() {
 				</p>
 			</div>
 
-			<StudentTable students={students} />
+			<StudentTable majors={majors} students={students} />
 		</section>
 	);
 }

@@ -5,6 +5,7 @@ import {
 	extractInitialPassword,
 	extractStudentCollection,
 	toBackendStudentStatus,
+	type MajorOption,
 	type StudentRecord,
 	type StudentStatus,
 } from "@/app/lib/student-registry";
@@ -23,14 +24,40 @@ const statusStyles: Record<Student["status"], string> = {
 	Suspended: "bg-tertiary-container text-on-tertiary-container",
 };
 
-type SortKey = "id" | "first_name" | "last_name" | "email" | "status" | null;
+type SortKey =
+	| "id"
+	| "first_name"
+	| "last_name"
+	| "email"
+	| "major"
+	| "gender"
+	| "birthday"
+	| "status"
+	| null;
 type SortDir = "asc" | "desc";
 
 const sortVal = (s: Student, key: NonNullable<SortKey>) => {
 	if (key === "first_name") return s.first_name.toLowerCase();
 	if (key === "last_name") return s.last_name.toLowerCase();
+	if (key === "major") return (s.major ?? "").toLowerCase();
+	if (key === "gender") return (s.gender ?? "").toLowerCase();
+	if (key === "birthday") return s.birthday ?? "";
 	return String(s[key]).toLowerCase();
 };
+
+function formatBirthday(value?: string) {
+	if (!value) {
+		return "Not set";
+	}
+
+	const [year, month, day] = value.split("-");
+
+	if (!year || !month || !day) {
+		return value;
+	}
+
+	return `${day}/${month}/${year}`;
+}
 
 async function getApiErrorMessage(response: Response) {
 	try {
@@ -59,36 +86,50 @@ async function getApiErrorMessage(response: Response) {
 }
 
 type AddForm = {
+	address: string;
+	birthday: string;
 	email: string;
 	first_name: string;
+	gender: string;
 	last_name: string;
+	major_id: string;
 	status: StudentStatus;
 };
 
 function AddStudentModal({
 	isSaving,
+	majors,
 	onClose,
 	onSave,
 }: {
 	isSaving: boolean;
+	majors: MajorOption[];
 	onClose: () => void;
 	onSave: (data: AddForm) => void | Promise<void>;
 }) {
 	const [form, setForm] = useState<AddForm>({
+		address: "",
+		birthday: "",
 		email: "",
 		first_name: "",
+		gender: "",
 		last_name: "",
+		major_id: "",
 		status: "Active",
 	});
 
 	const set =
 		(k: keyof AddForm) =>
-		(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+		(
+			e: React.ChangeEvent<
+				HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+			>,
+		) =>
 			setForm((prev) => ({ ...prev, [k]: e.target.value }));
 
 	return (
 		<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm">
-			<div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+			<div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
 				<div className="flex items-center justify-between border-b border-slate-100 px-8 py-6">
 					<h2 className="font-headline text-xl font-bold text-indigo-900">
 						Add Student
@@ -163,6 +204,66 @@ function AddStudentModal({
 
 					<div className="space-y-1.5">
 						<label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+							Major
+						</label>
+						<select
+							value={form.major_id}
+							onChange={set("major_id")}
+							disabled={isSaving}
+							className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-70"
+						>
+							<option value="">Select major</option>
+							{majors.map((major) => (
+								<option key={major.id} value={major.id}>
+									{major.name}
+								</option>
+							))}
+						</select>
+					</div>
+
+					<div className="grid grid-cols-2 gap-4">
+						<div className="space-y-1.5">
+							<label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+								Gender
+							</label>
+							<input
+								value={form.gender}
+								onChange={set("gender")}
+								placeholder="Male"
+								disabled={isSaving}
+								className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-70"
+							/>
+						</div>
+						<div className="space-y-1.5">
+							<label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+								Birthday
+							</label>
+							<input
+								type="date"
+								value={form.birthday}
+								onChange={set("birthday")}
+								disabled={isSaving}
+								className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-70"
+							/>
+						</div>
+					</div>
+
+					<div className="space-y-1.5">
+						<label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+							Address
+						</label>
+						<textarea
+							value={form.address}
+							onChange={set("address")}
+							rows={3}
+							placeholder="Street, ward, district, city"
+							disabled={isSaving}
+							className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-70"
+						/>
+					</div>
+
+					<div className="space-y-1.5">
+						<label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
 							Status
 						</label>
 						<select
@@ -201,35 +302,53 @@ function AddStudentModal({
 }
 
 type EditForm = {
+	address: string;
+	birthday: string;
 	email: string;
 	first_name: string;
+	gender: string;
 	last_name: string;
+	major_id: string;
 	newPassword: string;
 	status: StudentStatus;
 };
 
 function EditStudentModal({
 	isSaving,
+	majors,
 	onClose,
 	onSave,
 	student,
 }: {
 	isSaving: boolean;
+	majors: MajorOption[];
 	onClose: () => void;
 	onSave: (data: EditForm) => void | Promise<void>;
 	student: Student;
 }) {
+	const fallbackMajorId =
+		student.major_id ??
+		majors.find((major) => major.name === student.major)?.id ??
+		"";
 	const [form, setForm] = useState<EditForm>({
+		address: student.address ?? "",
+		birthday: student.birthday ?? "",
 		email: student.email,
 		first_name: student.first_name,
+		gender: student.gender ?? "",
 		last_name: student.last_name,
+		major_id: fallbackMajorId,
 		newPassword: "",
 		status: student.status,
 	});
 
 	const set =
 		(k: keyof EditForm) =>
-		(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+		(
+			e: React.ChangeEvent<
+				HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+			>,
+		) =>
 			setForm((prev) => ({ ...prev, [k]: e.target.value }));
 
 	const resetPassword = () =>
@@ -237,7 +356,7 @@ function EditStudentModal({
 
 	return (
 		<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm">
-			<div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl">
+			<div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
 				<div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-8 py-6">
 					<div>
 						<h2 className="font-headline text-xl font-bold text-indigo-900">
@@ -302,6 +421,64 @@ function EditStudentModal({
 							required
 							disabled={isSaving}
 							className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-70"
+						/>
+					</div>
+
+					<div className="space-y-1.5">
+						<label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+							Major
+						</label>
+						<select
+							value={form.major_id}
+							onChange={set("major_id")}
+							disabled={isSaving}
+							className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-70"
+						>
+							<option value="">Select major</option>
+							{majors.map((major) => (
+								<option key={major.id} value={major.id}>
+									{major.name}
+								</option>
+							))}
+						</select>
+					</div>
+
+					<div className="grid grid-cols-2 gap-4">
+						<div className="space-y-1.5">
+							<label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+								Gender
+							</label>
+							<input
+								value={form.gender}
+								onChange={set("gender")}
+								disabled={isSaving}
+								className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-70"
+							/>
+						</div>
+						<div className="space-y-1.5">
+							<label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+								Birthday
+							</label>
+							<input
+								type="date"
+								value={form.birthday}
+								onChange={set("birthday")}
+								disabled={isSaving}
+								className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-70"
+							/>
+						</div>
+					</div>
+
+					<div className="space-y-1.5">
+						<label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+							Address
+						</label>
+						<textarea
+							value={form.address}
+							onChange={set("address")}
+							rows={3}
+							disabled={isSaving}
+							className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-70"
 						/>
 					</div>
 
@@ -396,8 +573,10 @@ type FlashState =
 	| null;
 
 export default function StudentTable({
+	majors,
 	students: initial,
 }: {
+	majors: MajorOption[];
 	students: Student[];
 }) {
 	const [students, setStudents] = useState(initial);
@@ -418,6 +597,9 @@ export default function StudentTable({
 					s.first_name.toLowerCase().includes(q) ||
 					s.last_name.toLowerCase().includes(q) ||
 					s.email.toLowerCase().includes(q) ||
+					(s.major ?? "").toLowerCase().includes(q) ||
+					(s.gender ?? "").toLowerCase().includes(q) ||
+					(s.address ?? "").toLowerCase().includes(q) ||
 					s.id.toLowerCase().includes(q),
 			);
 		}
@@ -468,9 +650,13 @@ export default function StudentTable({
 		try {
 			const response = await fetch("/api/students", {
 				body: JSON.stringify({
+					address: data.address || undefined,
+					birthday: data.birthday || undefined,
 					email: data.email,
 					first_name: data.first_name,
+					gender: data.gender || undefined,
 					last_name: data.last_name,
+					major_id: data.major_id || undefined,
 					status: toBackendStudentStatus(data.status),
 				}),
 				headers: {
@@ -516,9 +702,13 @@ export default function StudentTable({
 
 		try {
 			const payload = {
+				address: data.address || undefined,
+				birthday: data.birthday || undefined,
 				email: data.email,
 				first_name: data.first_name,
+				gender: data.gender || undefined,
 				last_name: data.last_name,
+				major_id: data.major_id || undefined,
 				password_hash: data.newPassword.trim() || undefined,
 				status: toBackendStudentStatus(data.status),
 			};
@@ -596,11 +786,11 @@ export default function StudentTable({
 
 	const SortIcon = ({ col }: { col: SortKey }) =>
 		sortKey === col ? (
-			<span className="material-symbols-outlined ml-0.5 align-middle text-[13px] text-primary">
+			<span className="material-symbols-outlined text-[13px] text-primary">
 				{sortDir === "asc" ? "arrow_upward" : "arrow_downward"}
 			</span>
 		) : (
-			<span className="material-symbols-outlined ml-0.5 align-middle text-[13px] text-slate-300">
+			<span className="material-symbols-outlined text-[13px] text-slate-300">
 				unfold_more
 			</span>
 		);
@@ -608,7 +798,10 @@ export default function StudentTable({
 	const columns: { key: SortKey; label: string }[] = [
 		{ key: "id", label: "ID" },
 		{ key: "last_name", label: "Full Name" },
-		{ key: "email", label: "Email" },
+		{ key: "major", label: "Major" },
+		{ key: "email", label: "Contact" },
+		{ key: "gender", label: "Gender" },
+		{ key: "birthday", label: "Birthday" },
 		{ key: "status", label: "Status" },
 		{ key: null, label: "Actions" },
 	];
@@ -618,6 +811,7 @@ export default function StudentTable({
 			{modal.mode === "add" && (
 				<AddStudentModal
 					isSaving={isMutating}
+					majors={majors}
 					onSave={handleAdd}
 					onClose={() => setModal({ mode: "closed" })}
 				/>
@@ -625,6 +819,7 @@ export default function StudentTable({
 			{modal.mode === "edit" && (
 				<EditStudentModal
 					isSaving={isMutating}
+					majors={majors}
 					student={modal.student}
 					onSave={handleEdit}
 					onClose={() => setModal({ mode: "closed" })}
@@ -677,26 +872,31 @@ export default function StudentTable({
 					</div>
 				)}
 
-				<table className="w-full border-collapse text-left">
-					<thead>
-						<tr className="bg-slate-50/50">
-							{columns.map(({ key, label }) => (
-								<th
-									key={label}
-									onClick={() => toggleSort(key)}
-									className={`px-8 py-4 text-[11px] font-bold uppercase tracking-widest text-slate-500 ${label === "Actions" ? "text-right" : ""} ${key ? "cursor-pointer select-none hover:text-indigo-700" : ""}`}
-								>
-									{label}
-									{key && <SortIcon col={key} />}
-								</th>
-							))}
-						</tr>
-					</thead>
-					<tbody className="divide-y divide-slate-100">
+				<div className="overflow-x-auto">
+					<table className="min-w-[1100px] w-full border-collapse text-left">
+						<thead>
+							<tr className="bg-slate-50/50">
+								{columns.map(({ key, label }) => (
+									<th
+										key={label}
+										onClick={() => toggleSort(key)}
+										className={`px-8 py-4 text-[11px] font-bold uppercase tracking-widest text-slate-500 ${label === "Actions" ? "text-right" : ""} ${key ? "cursor-pointer select-none hover:text-indigo-700" : ""}`}
+									>
+										<span
+											className={`inline-flex items-center gap-1 whitespace-nowrap ${label === "Actions" ? "justify-end" : "justify-start"}`}
+										>
+											{key && <SortIcon col={key} />}
+											<span>{label}</span>
+										</span>
+									</th>
+								))}
+							</tr>
+						</thead>
+						<tbody className="divide-y divide-slate-100">
 						{filtered.length === 0 ? (
 							<tr>
 								<td
-									colSpan={5}
+									colSpan={8}
 									className="px-8 py-12 text-center text-sm text-slate-400"
 								>
 									No students match your search.
@@ -715,7 +915,21 @@ export default function StudentTable({
 										{student.first_name} {student.last_name}
 									</td>
 									<td className="px-8 py-5 text-sm text-slate-600">
-										{student.email}
+										{student.major || "Not set"}
+									</td>
+									<td className="px-8 py-5 text-sm text-slate-600">
+										<div>{student.email}</div>
+										{student.address && (
+											<div className="mt-1 max-w-xs text-xs text-slate-400">
+												{student.address}
+											</div>
+										)}
+									</td>
+									<td className="px-8 py-5 text-sm text-slate-600">
+										{student.gender || "Not set"}
+									</td>
+									<td className="px-8 py-5 text-sm text-slate-600">
+										{formatBirthday(student.birthday)}
 									</td>
 									<td className="px-8 py-5">
 										<span
@@ -745,7 +959,9 @@ export default function StudentTable({
 											</button>
 											<button
 												type="button"
-												onClick={() => void handleDelete(student)}
+												onClick={() =>
+													void handleDelete(student)
+												}
 												disabled={isMutating}
 												className="rounded-lg p-2 text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
 												title="Delete student"
@@ -759,8 +975,9 @@ export default function StudentTable({
 								</tr>
 							))
 						)}
-					</tbody>
-				</table>
+						</tbody>
+					</table>
+				</div>
 
 				<div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/30 px-8 py-4">
 					<p className="text-xs font-medium text-slate-500">

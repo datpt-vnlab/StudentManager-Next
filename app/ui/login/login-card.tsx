@@ -393,7 +393,7 @@ export default function LoginCard() {
 									</span>
 									<input
 										type="text"
-										placeholder="e.g. STU20260001"
+										placeholder="STU........"
 										value={studentId}
 										onChange={(e) =>
 											setStudentId(e.target.value)
@@ -454,7 +454,7 @@ export default function LoginCard() {
 									</span>
 									<input
 										type="email"
-										placeholder="admin@scholar-slate.edu"
+										placeholder="Your email address..."
 										value={adminId}
 										onChange={(e) => {
 											setAdminId(e.target.value);

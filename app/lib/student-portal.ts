@@ -16,6 +16,7 @@ export type StudentPortalProfile = {
 	id: string;
 	email: string;
 	gender?: string;
+	majorId?: string;
 	major?: string;
 	name: string;
 };
@@ -30,10 +31,49 @@ type StudentPortalResponse = {
 		gender?: string;
 		id?: string;
 		lastName?: string;
-		major?: string;
+		major?:
+			| string
+			| {
+					id?: string;
+					major?: string;
+					major_name?: string;
+					name?: string;
+			  };
+		majorId?: string;
 		name?: string;
 	};
 };
+
+function normalizeMajor(
+	value:
+		| string
+		| {
+				id?: string;
+				major?: string;
+				major_name?: string;
+				name?: string;
+		  }
+		| undefined,
+) {
+	if (typeof value === "string") {
+		return value.trim() || undefined;
+	}
+
+	if (!value || typeof value !== "object") {
+		return undefined;
+	}
+
+	const majorName =
+		typeof value.major_name === "string"
+			? value.major_name
+			: typeof value.major === "string"
+				? value.major
+				: typeof value.name === "string"
+					? value.name
+					: "";
+
+	return majorName.trim() || undefined;
+}
 
 export const getStudentPortalProfile = cache(async function getStudentPortalProfile() {
 	const session = await requireRole("student");
@@ -75,7 +115,8 @@ export const getStudentPortalProfile = cache(async function getStudentPortalProf
 		email: student.email,
 		gender: student.gender?.trim() || undefined,
 		id: student.id,
-		major: student.major?.trim() || undefined,
+		major: normalizeMajor(student.major),
+		majorId: student.majorId?.trim() || undefined,
 		name: fullName,
 	};
 });
