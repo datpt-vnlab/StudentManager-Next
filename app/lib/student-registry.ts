@@ -1,18 +1,26 @@
 export type StudentStatus = "Active" | "Suspended" | "Graduated";
 
 export type StudentRecord = {
+	address?: string;
+	birthday?: string;
 	email: string;
 	first_name: string;
+	gender?: string;
 	id: string;
 	last_name: string;
+	major?: string;
 	status: StudentStatus;
 };
 
 type BackendStudentRecord = {
+	address?: unknown;
+	birthday?: unknown;
 	email?: unknown;
 	first_name?: unknown;
+	gender?: unknown;
 	id?: unknown;
 	last_name?: unknown;
+	major?: unknown;
 	status?: unknown;
 };
 
@@ -74,10 +82,26 @@ export function normalizeStudentRecord(value: unknown): StudentRecord | null {
 	}
 
 	return {
+		address:
+			typeof student.address === "string"
+				? student.address.trim() || undefined
+				: undefined,
+		birthday:
+			typeof student.birthday === "string"
+				? student.birthday.trim() || undefined
+				: undefined,
 		email: student.email,
 		first_name: student.first_name,
+		gender:
+			typeof student.gender === "string"
+				? student.gender.trim() || undefined
+				: undefined,
 		id: student.id,
 		last_name: student.last_name,
+		major:
+			typeof student.major === "string"
+				? student.major.trim() || undefined
+				: undefined,
 		status: normalizeStudentStatus(student.status),
 	};
 }

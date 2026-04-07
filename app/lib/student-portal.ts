@@ -1,3 +1,4 @@
+import { cache } from "react";
 import "server-only";
 
 import { redirect } from "next/navigation";
@@ -9,22 +10,32 @@ import {
 } from "@/app/lib/backend";
 
 export type StudentPortalProfile = {
+	address?: string;
+	avatarUrl?: string;
+	birthday?: string;
 	id: string;
-	name: string;
 	email: string;
+	gender?: string;
+	major?: string;
+	name: string;
 };
 
 type StudentPortalResponse = {
 	student?: {
+		address?: string;
+		avatarUrl?: string;
+		birthday?: string;
 		email?: string;
 		firstName?: string;
+		gender?: string;
 		id?: string;
 		lastName?: string;
+		major?: string;
 		name?: string;
 	};
 };
 
-export async function getStudentPortalProfile() {
+export const getStudentPortalProfile = cache(async function getStudentPortalProfile() {
 	const session = await requireRole("student");
 	const response = await fetch(buildBackendUrl("/student-portal/me"), {
 		cache: "no-store",
@@ -58,8 +69,13 @@ export async function getStudentPortalProfile() {
 	}
 
 	return {
+		address: student.address?.trim() || undefined,
+		avatarUrl: student.avatarUrl?.trim() || undefined,
+		birthday: student.birthday?.trim() || undefined,
 		email: student.email,
+		gender: student.gender?.trim() || undefined,
 		id: student.id,
+		major: student.major?.trim() || undefined,
 		name: fullName,
 	};
-}
+});

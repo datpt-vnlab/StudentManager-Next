@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export default function StudentDashboardLayout({
+export default function StudentSettingsLayout({
 	children,
 }: {
 	children: ReactNode;

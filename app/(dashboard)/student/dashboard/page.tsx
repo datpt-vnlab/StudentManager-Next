@@ -1,14 +1,19 @@
 import ProfileCard, {
 	type StudentProfile,
 } from "@/app/ui/student-dashboard/profile-card";
-import ChangePasswordForm from "@/app/ui/student-dashboard/change-password-form";
+import ContactForm from "@/app/ui/student-dashboard/contact-form";
 import { getStudentPortalProfile } from "@/app/lib/student-portal";
 
 export default async function StudentDashboardPage() {
 	const studentData = await getStudentPortalProfile();
 	const student: StudentProfile = {
+		address: studentData.address,
+		avatarUrl: studentData.avatarUrl,
+		birthday: studentData.birthday,
 		email: studentData.email,
+		gender: studentData.gender,
 		id: studentData.id,
+		major: studentData.major,
 		name: studentData.name,
 	};
 
@@ -28,7 +33,10 @@ export default async function StudentDashboardPage() {
 					<ProfileCard student={student} />
 				</div>
 				<div className="lg:col-span-6">
-					<ChangePasswordForm email={student.email} />
+					<ContactForm
+						address={student.address}
+						email={student.email}
+					/>
 				</div>
 			</div>
 		</div>

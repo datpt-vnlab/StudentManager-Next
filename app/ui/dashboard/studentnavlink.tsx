@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { MdPerson } from "react-icons/md";
+import { MdPerson, MdSettings } from "react-icons/md";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
 
 const links = [
 	{ name: "My Profile", href: "/student/dashboard", icon: MdPerson },
+	{ name: "Settings", href: "/student/settings", icon: MdSettings },
 ];
 
 export default function StudentNavLink() {

@@ -2,8 +2,19 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import StudentAvatar from "@/app/ui/student-dashboard/student-avatar";
 
-export default function Header() {
+type HeaderProps = {
+	role: "admin" | "student";
+	studentAvatarUrl?: string;
+	studentName?: string;
+};
+
+export default function Header({
+	role,
+	studentAvatarUrl,
+	studentName,
+}: HeaderProps) {
 	const router = useRouter();
 	const [errorMessage, setErrorMessage] = useState("");
 	const [isPending, startTransition] = useTransition();
@@ -40,14 +51,15 @@ export default function Header() {
 							logout
 						</span>
 					</button>
-					<div className="h-8 w-8 rounded-full bg-slate-200 overflow-hidden ring-2 ring-primary/10">
-						{/* eslint-disable-next-line @next/next/no-img-element */}
-						<img
-							src="https://lh3.googleusercontent.com/aida-public/AB6AXuDW0EDARyj7HY9PtNQRGoX-qeB05KjrPg62A3BTFz2nyl0dY4iG10-Qh74TFuVLS1dk8_UYzA9DyE9A1C2g_vtHnD5zhUYC5UsqRH12ulP1CJaqVUeohQFNxkMUnM225EHJhPy2uSm_A-yLV8xGlEav8QPc75enpRM-E5HpsSbiEM_fznuByY5ceHBxD6m9KMWERZQgPRTsB4sMVZ_KcBjKMO59xFB529Ui5XPznCEjQagwyH9V8WI5UXJRMtCM7g-3bYKUBYgpOIYS"
-							alt="User avatar"
-							className="w-full h-full object-cover"
+					{role === "student" && (
+						<StudentAvatar
+							avatarUrl={studentAvatarUrl}
+							name={studentName}
+							className="ring-2 ring-primary/10"
+							sizeClassName="h-8 w-8 border-2"
+							textClassName="text-xs"
 						/>
-					</div>
+					)}
 				</div>
 			</div>
 			{errorMessage && (

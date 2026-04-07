@@ -1,73 +1,82 @@
-// Server Component — receives student data as props, purely presentational
+"use client";
+
+import StudentAvatar from "@/app/ui/student-dashboard/student-avatar";
 
 export type StudentProfile = {
-	id: string;
-	name: string;
-	email: string;
-	program?: string;
+	address?: string;
 	avatarUrl?: string;
+	birthday?: string;
+	id: string;
+	email: string;
+	gender?: string;
+	major?: string;
+	name: string;
 };
+
+function InfoRow({
+	children,
+	label,
+}: {
+	children: React.ReactNode;
+	label: string;
+}) {
+	return (
+		<div className="rounded-lg bg-surface-container-low p-4 text-left">
+			<p className="mb-2 text-xs font-bold uppercase tracking-widest text-on-surface-variant">
+				{label}
+			</p>
+			{children}
+		</div>
+	);
+}
 
 export default function ProfileCard({ student }: { student: StudentProfile }) {
 	const displayName = student.name?.trim() || "Student";
-	const initials = displayName
-		.split(/\s+/)
-		.filter(Boolean)
-		.slice(0, 2)
-		.map((part) => part[0]?.toUpperCase() ?? "")
-		.join("");
+	const formattedBirthday = student.birthday
+		? new Date(student.birthday).toLocaleDateString("en-GB")
+		: "01/01/2000";
+	const displayGender = student.gender?.trim() || "Male";
+	const displayMajor = student.major?.trim() || "Unknown";
 
 	return (
-		<section className="bg-surface-container-lowest rounded-xl p-8 shadow-sm overflow-hidden relative group">
-			{/* Decorative background circle */}
-			<div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-110 duration-500" />
+		<section className="relative overflow-hidden rounded-xl bg-surface-container-lowest p-8 shadow-sm">
+			<div className="absolute top-0 right-0 -mt-16 -mr-16 h-32 w-32 rounded-full bg-primary/5 transition-transform duration-500 group-hover:scale-110" />
 
 			<div className="relative flex flex-col items-center text-center">
-				{/* Avatar */}
 				<div className="relative mb-6">
-					<div className="w-32 h-32 rounded-full overflow-hidden border-4 border-white shadow-xl">
-						{student.avatarUrl ? (
-							// eslint-disable-next-line @next/next/no-img-element
-							<img
-								src={student.avatarUrl}
-								alt={`Portrait of ${displayName}`}
-								className="w-full h-full object-cover"
-							/>
-						) : (
-							<div className="flex h-full w-full items-center justify-center bg-primary text-3xl font-bold text-white">
-								{initials || "ST"}
-							</div>
-						)}
-					</div>
+					<StudentAvatar
+						avatarUrl={student.avatarUrl}
+						name={displayName}
+						sizeClassName="h-32 w-32 border-4"
+						textClassName="text-3xl"
+					/>
 				</div>
 
 				<h3 className="font-headline text-2xl font-bold text-on-surface">
 					{displayName}
 				</h3>
-				<p className="text-on-surface-variant text-sm tracking-wide uppercase font-semibold mt-1">
+				<p className="mt-1 text-sm font-semibold uppercase tracking-wide text-on-surface-variant">
 					ID: {student.id}
 				</p>
 
-				{/* Info rows */}
-				<div className="mt-8 w-full space-y-4">
-					<div className="flex items-center justify-between p-4 bg-surface-container-low rounded-lg">
-						<span className="text-on-surface-variant text-xs font-bold uppercase tracking-widest">
-							Email Address
-						</span>
-						<span className="text-on-surface font-bold text-sm">
-							{student.email}
-						</span>
-					</div>
-					{student.program && (
-						<div className="flex items-center justify-between p-4 bg-surface-container-low rounded-lg">
-							<span className="text-on-surface-variant text-xs font-bold uppercase tracking-widest">
-								Enrolled Program
-							</span>
-							<span className="text-primary font-bold text-sm">
-								{student.program}
-							</span>
-						</div>
-					)}
+				<div className="mt-8 w-full space-y-4 text-left">
+					<InfoRow label="Major">
+						<p className="text-sm font-bold text-primary">
+							{displayMajor}
+						</p>
+					</InfoRow>
+
+					<InfoRow label="Gender">
+						<p className="text-sm font-bold text-on-surface">
+							{displayGender}
+						</p>
+					</InfoRow>
+
+					<InfoRow label="Birthday">
+						<p className="text-sm font-bold text-on-surface">
+							{formattedBirthday}
+						</p>
+					</InfoRow>
 				</div>
 			</div>
 		</section>

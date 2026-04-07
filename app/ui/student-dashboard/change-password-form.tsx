@@ -34,7 +34,11 @@ async function getApiErrorMessage(response: Response) {
 	return response.statusText || "Request failed.";
 }
 
-export default function ChangePasswordForm({ email }: { email: string }) {
+export default function ChangePasswordForm({
+	email,
+}: {
+	email: string;
+}) {
 	const [current, setCurrent] = useState("");
 	const [next, setNext] = useState("");
 	const [confirm, setConfirm] = useState("");
