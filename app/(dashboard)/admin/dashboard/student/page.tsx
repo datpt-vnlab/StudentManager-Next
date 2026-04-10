@@ -1,32 +1,10 @@
-// Server Component: fetches student data, passes to ui/student/table
-// TODO: replace with fetch("http://localhost:3001/students", { cache: "no-store" })
-import StudentTable, { type Student } from "@/app/ui/student/table";
+import { getAdminMajors, getAdminStudents } from "@/app/lib/admin-students";
+import StudentTable from "@/app/ui/student/table";
 
-const MOCK_STUDENTS: Student[] = [
-	{
-		id: "STU20260001",
-		first_name: "Elena",
-		last_name: "Rodriguez",
-		email: "elena.r@editorial.edu",
-		status: "Active",
-	},
-	{
-		id: "STU20260042",
-		first_name: "Julian",
-		last_name: "Montgomery",
-		email: "j.mont@editorial.edu",
-		status: "Suspended",
-	},
-	{
-		id: "STU20260098",
-		first_name: "Sarah",
-		last_name: "Tanaka",
-		email: "stanaka@editorial.edu",
-		status: "Graduated",
-	},
-];
+export default async function StudentRegistryPage() {
+	const majors = await getAdminMajors();
+	const students = await getAdminStudents();
 
-export default function StudentRegistryPage() {
 	return (
 		<section className="p-8 flex-1 bg-surface">
 			<div className="mb-8">
@@ -38,7 +16,7 @@ export default function StudentRegistryPage() {
 				</p>
 			</div>
 
-			<StudentTable students={MOCK_STUDENTS} />
+			<StudentTable majors={majors} students={students} />
 		</section>
 	);
 }

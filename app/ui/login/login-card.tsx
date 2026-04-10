@@ -1,200 +1,644 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+	getCachedBrowserIdentity,
+	getBrowserIdentity,
+	type BrowserFingerprintStatus,
+	type BrowserIdentity,
+} from "@/app/lib/browser-fingerprint";
+import {
+	getFaceIdBrowserNotice,
+	mapFaceIdErrorMessage,
+} from "@/app/lib/face-id";
+import {
+	captureVisibleVideoFrame,
+	dataUrlToFile,
+} from "@/app/lib/face-id-camera";
 
 type Tab = "student" | "admin";
-type ScanState = "idle" | "scanning" | "success";
+type FaceIdLoginPhase =
+	| "requesting_camera"
+	| "capturing"
+	| "submitting"
+	| "error";
 
-// ── Face Scan Overlay ────────────────────────────────────────────────────────
+type ApiError = {
+	error?: string;
+	errorCode?: string;
+	errors?: string[];
+	message?: string;
+	nextPage?: string;
+};
 
-function FaceScanOverlay({
+async function readApiPayload(response: Response) {
+	try {
+		return (await response.json()) as ApiError;
+	} catch {
+		return null;
+	}
+}
+
+function getApiErrorMessage(payload: ApiError | null, fallback: string) {
+	if (!payload) {
+		return fallback;
+	}
+
+	if (payload.errorCode) {
+		return mapFaceIdErrorMessage(payload.errorCode, fallback);
+	}
+
+	if (typeof payload.message === "string" && payload.message.trim()) {
+		return payload.message;
+	}
+
+	if (typeof payload.error === "string" && payload.error.trim()) {
+		return payload.error;
+	}
+
+	if (Array.isArray(payload.errors) && payload.errors.length > 0) {
+		return payload.errors.join(", ");
+	}
+
+	return fallback;
+}
+
+function FaceIdLoginOverlay({
+	email,
+	isSubmitting,
 	onCancel,
-	onSuccess,
+	onSubmit,
 }: {
+	email: string;
+	isSubmitting: boolean;
 	onCancel: () => void;
-	onSuccess: () => void;
+	onSubmit: (file: File) => Promise<void>;
 }) {
-	const [state, setState] = useState<ScanState>("scanning");
+	const videoRef = useRef<HTMLVideoElement | null>(null);
+	const canvasRef = useRef<HTMLCanvasElement | null>(null);
+	const streamRef = useRef<MediaStream | null>(null);
+	const [phase, setPhase] = useState<FaceIdLoginPhase>("requesting_camera");
+	const [statusMessage, setStatusMessage] = useState(
+		"Requesting access to your camera...",
+	);
 
 	useEffect(() => {
-		// Mock: 2-second "scan" then success
-		const t1 = setTimeout(() => setState("success"), 2000);
-		const t2 = setTimeout(() => onSuccess(), 2800);
-		return () => { clearTimeout(t1); clearTimeout(t2); };
-	}, [onSuccess]);
+		let cancelled = false;
+
+		async function setupCamera() {
+			try {
+				const stream = await navigator.mediaDevices.getUserMedia({
+					audio: false,
+					video: {
+						facingMode: "user",
+						height: { ideal: 720 },
+						width: { ideal: 1280 },
+					},
+				});
+
+				if (cancelled) {
+					for (const track of stream.getTracks()) {
+						track.stop();
+					}
+					return;
+				}
+
+				streamRef.current = stream;
+
+				if (videoRef.current) {
+					videoRef.current.srcObject = stream;
+					await videoRef.current.play();
+				}
+
+				setPhase("capturing");
+				setStatusMessage("Keep only one face in frame, then capture to continue.");
+			} catch {
+				setPhase("error");
+				setStatusMessage(
+					"Camera access is required to sign in with Face ID on this browser.",
+				);
+			}
+		}
+
+		void setupCamera();
+
+		return () => {
+			cancelled = true;
+			const stream = streamRef.current;
+			if (stream) {
+				for (const track of stream.getTracks()) {
+					track.stop();
+				}
+				streamRef.current = null;
+			}
+		};
+	}, []);
+
+	const handleCapture = async () => {
+		if (!videoRef.current || !canvasRef.current || isSubmitting) {
+			return;
+		}
+
+		try {
+			setPhase("submitting");
+			setStatusMessage("Verifying Face ID...");
+			const dataUrl = captureVisibleVideoFrame(videoRef.current, canvasRef.current);
+			console.log("Face ID login captured image:", dataUrl);
+			const file = dataUrlToFile(dataUrl, `face-login-${Date.now()}.jpg`);
+
+			if (!file) {
+				throw new Error("Unable to capture the current frame.");
+			}
+
+			await onSubmit(file);
+		} catch (error) {
+			setPhase("error");
+			setStatusMessage(
+				error instanceof Error
+					? error.message
+					: "Unable to capture the current frame.",
+			);
+		}
+	};
+
+	const canClose = phase !== "submitting" && !isSubmitting;
 
 	return (
-		<div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-slate-950/97 p-8">
-			{/* Close */}
-			{state !== "success" && (
-				<button
-					onClick={onCancel}
-					className="absolute top-6 right-6 p-2 text-white/40 hover:text-white/80 transition-colors"
-				>
-					<span className="material-symbols-outlined text-2xl">close</span>
-				</button>
-			)}
-
-			<div className="flex flex-col items-center gap-8">
-				{/* Viewfinder */}
-				<div className="relative w-60 h-60 flex items-center justify-center">
-					{/* Pulsing outer ring */}
-					{state === "scanning" && (
-						<div className="absolute inset-0 rounded-full border border-indigo-500/30 animate-ping" />
-					)}
-
-					{/* Main ring */}
-					<div
-						className={`absolute inset-0 rounded-full border-2 transition-colors duration-500 ${state === "success" ? "border-emerald-400" : "border-indigo-400/80"}`}
-					/>
-
-					{/* Corner brackets */}
-					{(["tl", "tr", "bl", "br"] as const).map((pos) => (
-						<div
-							key={pos}
-							className={`absolute w-7 h-7 transition-colors duration-500 ${state === "success" ? "border-emerald-400" : "border-indigo-400"} ${pos === "tl" ? "top-3 left-3 border-t-2 border-l-2 rounded-tl-lg" : pos === "tr" ? "top-3 right-3 border-t-2 border-r-2 rounded-tr-lg" : pos === "bl" ? "bottom-3 left-3 border-b-2 border-l-2 rounded-bl-lg" : "bottom-3 right-3 border-b-2 border-r-2 rounded-br-lg"}`}
-						/>
-					))}
-
-					{/* Face icon / check */}
-					{state === "success" ? (
-						<span className="material-symbols-outlined text-[72px] text-emerald-400">
-							check_circle
-						</span>
-					) : (
-						<span className="material-symbols-outlined text-[72px] text-white/15">
-							face
-						</span>
-					)}
-
-					{/* Scan line */}
-					{state === "scanning" && (
-						<>
-							<div
-								className="absolute left-8 right-8 h-px bg-gradient-to-r from-transparent via-indigo-400 to-transparent"
-								style={{ animation: "faceScanLine 2s ease-in-out infinite" }}
-							/>
-							<style>{`
-								@keyframes faceScanLine {
-									0%   { top: 20%; opacity: 0.3; }
-									50%  { top: 80%; opacity: 1;   }
-									100% { top: 20%; opacity: 0.3; }
-								}
-							`}</style>
-						</>
-					)}
-				</div>
-
-				{/* Status text */}
-				<div className="text-center">
-					<p
-						className={`font-semibold text-lg transition-colors duration-300 ${state === "success" ? "text-emerald-400" : "text-white"}`}
-					>
-						{state === "success" ? "Face Recognized" : "Face ID Login"}
-					</p>
-					<p className="text-white/50 text-sm mt-1">
-						{state === "success"
-							? "Signing you in…"
-							: "Position your face within the frame"}
-					</p>
-				</div>
-
-				{/* Dots indicator */}
-				{state === "scanning" && (
-					<div className="flex gap-2">
-						{[0, 1, 2].map((i) => (
-							<div
-								key={i}
-								className="w-1.5 h-1.5 rounded-full bg-indigo-400"
-								style={{
-									animation: `dotPulse 1.2s ease-in-out ${i * 0.2}s infinite`,
-								}}
-							/>
-						))}
-						<style>{`
-							@keyframes dotPulse {
-								0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
-								40%           { opacity: 1;   transform: scale(1.2); }
-							}
-						`}</style>
+		<div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/90 p-6">
+			<div className="w-full max-w-5xl overflow-hidden rounded-3xl bg-slate-950 text-white shadow-2xl ring-1 ring-white/10">
+				<div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+					<div>
+						<h3 className="text-lg font-bold">Face ID Sign In</h3>
+						<p className="mt-1 text-sm text-white/55">
+							Use the same live frame as enrollment to verify {email}.
+						</p>
 					</div>
-				)}
+					<button
+						type="button"
+						onClick={onCancel}
+						disabled={!canClose}
+						className="rounded-full p-2 text-white/50 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+					>
+						<span className="material-symbols-outlined">close</span>
+					</button>
+				</div>
+
+				<div className="grid gap-0 lg:min-h-[720px] lg:grid-cols-[1.5fr_0.9fr]">
+					<div className="relative min-h-[440px] bg-black lg:min-h-[720px]">
+						<video
+							ref={videoRef}
+							autoPlay
+							muted
+							playsInline
+							className="h-full min-h-[440px] w-full object-cover lg:min-h-[720px]"
+						/>
+						<canvas ref={canvasRef} className="hidden" />
+
+						{phase === "submitting" && (
+							<div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-slate-950/70">
+								<div className="h-12 w-12 animate-spin rounded-full border-4 border-white/20 border-t-cyan-300" />
+								<p className="text-sm font-semibold">Verifying Face ID...</p>
+							</div>
+						)}
+
+						{phase === "error" && (
+							<div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-red-950/65 px-6 text-center">
+								<span className="material-symbols-outlined text-7xl text-red-300">
+									error
+								</span>
+								<p className="text-lg font-bold">Camera unavailable</p>
+								<p className="max-w-sm text-sm text-red-100/85">
+									{statusMessage}
+								</p>
+							</div>
+						)}
+					</div>
+
+					<div className="flex min-h-[440px] flex-col gap-5 bg-slate-900 px-6 py-6 lg:min-h-[720px]">
+						<div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+							<p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">
+								Face ID
+							</p>
+							<p className="mt-2 text-2xl font-bold">Live camera check</p>
+							<p className="mt-2 text-sm text-white/60">{statusMessage}</p>
+						</div>
+
+						<div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+							<p className="text-sm font-semibold">Before you capture</p>
+							<p className="text-sm text-white/60">
+								Look straight at the camera and keep your face clearly visible in the frame.
+							</p>
+							<button
+								type="button"
+								onClick={() => void handleCapture()}
+								disabled={phase !== "capturing" || isSubmitting}
+								className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-300 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+							>
+								<span className="material-symbols-outlined text-[18px]">
+									photo_camera
+								</span>
+								{isSubmitting ? "Verifying Face ID..." : "Capture and Sign In"}
+							</button>
+							<button
+								type="button"
+								onClick={onCancel}
+								disabled={!canClose}
+								className="flex w-full items-center justify-center rounded-xl border border-white/15 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+							>
+								Cancel
+							</button>
+						</div>
+					</div>
+				</div>
 			</div>
 		</div>
 	);
 }
 
-// ── Login Card ───────────────────────────────────────────────────────────────
-
 export default function LoginCard() {
+	const initialBrowserIdentity = getCachedBrowserIdentity();
 	const [tab, setTab] = useState<Tab>("student");
 	const [showPassword, setShowPassword] = useState(false);
 	const [studentId, setStudentId] = useState("");
 	const [studentPassword, setStudentPassword] = useState("");
 	const [adminId, setAdminId] = useState("");
 	const [adminOTP, setAdminOTP] = useState("");
-	const [showFaceScan, setShowFaceScan] = useState(false);
+	const [rememberMe, setRememberMe] = useState(false);
+	const [otpSent, setOtpSent] = useState(false);
+	const [otpCooldown, setOtpCooldown] = useState(0);
+	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [isSendingOtp, setIsSendingOtp] = useState(false);
+	const [isSubmittingFaceId, setIsSubmittingFaceId] = useState(false);
+	const [isFaceIdOverlayOpen, setIsFaceIdOverlayOpen] = useState(false);
+	const [fingerprintStatus, setFingerprintStatus] =
+		useState<BrowserFingerprintStatus>(
+			initialBrowserIdentity ? "ready" : "idle",
+		);
+	const [browserIdentity, setBrowserIdentity] = useState<BrowserIdentity | null>(
+		initialBrowserIdentity,
+	);
+	const [errorMessage, setErrorMessage] = useState("");
+	const [successMessage, setSuccessMessage] = useState("");
+	const [faceIdNotice, setFaceIdNotice] = useState("");
 
 	const router = useRouter();
 
-	const handleSubmit = (e: React.FormEvent) => {
-		e.preventDefault();
-		if (tab === "student") {
-			if (studentId && studentPassword && handleStudentLogin(studentId, studentPassword)) {
-				router.push("/student/dashboard");
+	const resetMessages = () => {
+		setErrorMessage("");
+		setSuccessMessage("");
+		setFaceIdNotice("");
+	};
+
+	useEffect(() => {
+		if (tab !== "admin") {
+			return;
+		}
+
+		if (
+			fingerprintStatus === "loading" ||
+			fingerprintStatus === "ready" ||
+			fingerprintStatus === "failed"
+		) {
+			return;
+		}
+
+		let cancelled = false;
+
+		async function loadFingerprint() {
+			setFingerprintStatus("loading");
+
+			try {
+				const identity = await getBrowserIdentity();
+
+				if (cancelled) {
+					return;
+				}
+
+				setBrowserIdentity(identity);
+				setFingerprintStatus("ready");
+			} catch {
+				if (cancelled) {
+					return;
+				}
+
+				setBrowserIdentity(null);
+				setFingerprintStatus("failed");
 			}
-		} else {
-			if (adminId && adminOTP && handleAdminLogin(adminId, adminOTP)) {
-				router.push("/admin/dashboard");
-			}
+		}
+
+		void loadFingerprint();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [fingerprintStatus, tab]);
+
+	const resolveBrowserIdentity = async () => {
+		if (browserIdentity) {
+			return browserIdentity;
+		}
+
+		setFingerprintStatus("loading");
+
+		try {
+			const identity = await getBrowserIdentity();
+			setBrowserIdentity(identity);
+			setFingerprintStatus("ready");
+			return identity;
+		} catch {
+			setBrowserIdentity(null);
+			setFingerprintStatus("failed");
+			return null;
 		}
 	};
 
-	// Temporary — will be replaced with API calls
-	const handleStudentLogin = (id: string, password: string) =>
-		id === "student" && password === "student";
-	const handleAdminLogin = (id: string, otp: string) =>
-		id === "admin" && otp === "123456";
+	useEffect(() => {
+		if (otpCooldown <= 0) {
+			return;
+		}
 
-	const handleFaceScanSuccess = () => {
-		setShowFaceScan(false);
-		router.push("/admin/dashboard");
+		const timer = window.setTimeout(() => {
+			setOtpCooldown((seconds) => seconds - 1);
+		}, 1000);
+
+		return () => window.clearTimeout(timer);
+	}, [otpCooldown]);
+
+	const getAdminEmailError = (value: string) => {
+		const email = value.trim();
+
+		if (!email) {
+			return "Enter your admin email first.";
+		}
+
+		if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+			return "Enter a complete admin email address.";
+		}
+
+		return null;
 	};
+
+	const handleStudentLogin = async () => {
+		const response = await fetch("/api/auth/student/login", {
+			body: JSON.stringify({
+				password: studentPassword,
+				rememberMe,
+				username: studentId,
+			}),
+			cache: "no-store",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			method: "POST",
+		});
+		const payload = await readApiPayload(response);
+
+		if (!response.ok) {
+			throw new Error(
+				getApiErrorMessage(payload, response.statusText || "Request failed."),
+			);
+		}
+
+		router.push(payload?.nextPage || "/student/dashboard");
+	};
+
+	const handleSendAdminOtp = async () => {
+		const emailError = getAdminEmailError(adminId);
+
+		if (emailError) {
+			setErrorMessage(emailError);
+			return;
+		}
+
+		if (otpCooldown > 0) {
+			setErrorMessage(`Wait ${otpCooldown}s before requesting another OTP.`);
+			return;
+		}
+
+		resetMessages();
+		setIsSendingOtp(true);
+
+		try {
+			const response = await fetch("/api/auth/admin/otp/send", {
+				body: JSON.stringify({
+					email: adminId.trim(),
+				}),
+				cache: "no-store",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				method: "POST",
+			});
+			const payload = await readApiPayload(response);
+
+			if (!response.ok) {
+				throw new Error(getApiErrorMessage(payload, "Unable to send OTP."));
+			}
+
+			setOtpSent(true);
+			setOtpCooldown(30);
+			setSuccessMessage("OTP sent to your email.");
+		} catch (error) {
+			setErrorMessage(
+				error instanceof Error ? error.message : "Unable to send OTP.",
+			);
+		} finally {
+			setIsSendingOtp(false);
+		}
+	};
+
+	const handleAdminLogin = async () => {
+		const identity = await resolveBrowserIdentity();
+		const requestBody: Record<string, unknown> = {
+			email: adminId.trim(),
+			otp: adminOTP,
+			rememberMe,
+		};
+
+		if (identity) {
+			requestBody.browserFingerprint = identity.browserFingerprint;
+			requestBody.browserLabel = identity.browserLabel;
+		} else {
+			setFaceIdNotice(
+				"Fingerprint is unavailable on this browser. OTP login can continue, but Face ID cannot be enabled here yet.",
+			);
+		}
+
+		const response = await fetch("/api/auth/admin/otp/verify", {
+			body: JSON.stringify(requestBody),
+			cache: "no-store",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			method: "POST",
+		});
+		const payload = await readApiPayload(response);
+
+		if (!response.ok) {
+			throw new Error(getApiErrorMessage(payload, "Unable to sign in."));
+		}
+
+		router.push(payload?.nextPage || "/admin/dashboard");
+	};
+
+	const handleFaceIdLogin = async (file: File) => {
+		const emailError = getAdminEmailError(adminId);
+
+		if (emailError) {
+			setErrorMessage(emailError);
+			return;
+		}
+
+		resetMessages();
+		setIsSubmittingFaceId(true);
+
+		try {
+			const identity = await resolveBrowserIdentity();
+
+			if (!identity) {
+				setFaceIdNotice(
+					"We could not identify this browser. Please sign in with OTP instead.",
+				);
+				return;
+			}
+
+			const formData = new FormData();
+			formData.append("email", adminId.trim());
+			formData.append("browserFingerprint", identity.browserFingerprint);
+			formData.append("browserLabel", identity.browserLabel);
+			formData.append("image", file);
+
+			const response = await fetch("/api/auth/admin/faceid/login", {
+				body: formData,
+				method: "POST",
+			});
+			const payload = await readApiPayload(response);
+
+			if (!response.ok) {
+				setFaceIdNotice(getFaceIdBrowserNotice(payload?.errorCode));
+				throw new Error(
+					getApiErrorMessage(payload, "Unable to sign in with Face ID."),
+				);
+			}
+
+			setIsFaceIdOverlayOpen(false);
+			router.push(payload?.nextPage || "/admin/dashboard");
+		} catch (error) {
+			setErrorMessage(
+				error instanceof Error
+					? error.message
+					: "Unable to sign in with Face ID.",
+			);
+		} finally {
+			setIsSubmittingFaceId(false);
+		}
+	};
+
+	const handleFaceIdButtonClick = async () => {
+		resetMessages();
+
+		const emailError = getAdminEmailError(adminId);
+
+		if (emailError) {
+			setErrorMessage(emailError);
+			return;
+		}
+
+		const identity = await resolveBrowserIdentity();
+
+		if (!identity) {
+			setFaceIdNotice(
+				"We could not identify this browser. Please sign in with OTP instead.",
+			);
+			return;
+		}
+
+		setIsFaceIdOverlayOpen(true);
+	};
+
+	const handleSubmit = async (e: React.FormEvent) => {
+		e.preventDefault();
+		resetMessages();
+		setIsSubmitting(true);
+
+		try {
+			if (tab === "student") {
+				if (!studentId.trim() || !studentPassword) {
+					setErrorMessage("Enter your student ID and password.");
+					return;
+				}
+
+				await handleStudentLogin();
+				return;
+			}
+
+			const emailError = getAdminEmailError(adminId);
+
+			if (emailError) {
+				setErrorMessage(emailError);
+				return;
+			}
+
+			if (!adminOTP.trim()) {
+				setErrorMessage("Enter the OTP sent to your admin email.");
+				return;
+			}
+
+			await handleAdminLogin();
+		} catch (error) {
+			setErrorMessage(
+				error instanceof Error ? error.message : "Unable to sign in.",
+			);
+		} finally {
+			setIsSubmitting(false);
+		}
+	};
+
+	const canUseFaceId =
+		getAdminEmailError(adminId) === null &&
+		fingerprintStatus !== "loading" &&
+		fingerprintStatus !== "failed";
 
 	return (
 		<>
-			{showFaceScan && (
-				<FaceScanOverlay
-					onCancel={() => setShowFaceScan(false)}
-					onSuccess={handleFaceScanSuccess}
+			{isFaceIdOverlayOpen && (
+				<FaceIdLoginOverlay
+					email={adminId.trim()}
+					isSubmitting={isSubmittingFaceId}
+					onCancel={() => {
+						if (isSubmittingFaceId) {
+							return;
+						}
+
+						setIsFaceIdOverlayOpen(false);
+					}}
+					onSubmit={handleFaceIdLogin}
 				/>
 			)}
 
-			<div className="glass-panel rounded-xl shadow-sm overflow-hidden p-8 md:p-10">
-				{/* Card header */}
+			<div className="glass-panel overflow-hidden rounded-xl p-8 shadow-sm md:p-10">
 				<div className="mb-8 text-center">
-					<h1 className="font-headline text-2xl font-extrabold text-on-surface mb-2">
+					<h1 className="mb-2 font-headline text-2xl font-extrabold text-on-surface">
 						Welcome Back
 					</h1>
-					<p className="text-on-surface-variant text-sm">
+					<p className="text-sm text-on-surface-variant">
 						Access your academic and administrative portal.
 					</p>
 				</div>
 
-				{/* Role switcher */}
-				<div className="bg-surface-container-low p-1 rounded-lg flex mb-8">
+				<div className="mb-8 flex rounded-lg bg-surface-container-low p-1">
 					<button
 						type="button"
 						onClick={() => setTab("student")}
-						className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-200 ${tab === "student" ? "bg-white shadow-sm text-primary" : "text-on-surface-variant hover:bg-surface-container-high"}`}
+						className={`flex-1 rounded-md py-2 text-sm font-semibold transition-all duration-200 ${tab === "student" ? "bg-white text-primary shadow-sm" : "text-on-surface-variant hover:bg-surface-container-high"}`}
 					>
 						Student
 					</button>
 					<button
 						type="button"
 						onClick={() => setTab("admin")}
-						className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-200 ${tab === "admin" ? "bg-white shadow-sm text-primary" : "text-on-surface-variant hover:bg-surface-container-high"}`}
+						className={`flex-1 rounded-md py-2 text-sm font-semibold transition-all duration-200 ${tab === "admin" ? "bg-white text-primary shadow-sm" : "text-on-surface-variant hover:bg-surface-container-high"}`}
 					>
 						Admin
 					</button>
@@ -204,7 +648,7 @@ export default function LoginCard() {
 					{tab === "student" ? (
 						<div className="space-y-5">
 							<div className="space-y-2">
-								<label className="block font-label text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider ml-1">
+								<label className="ml-1 block font-label text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
 									Student ID
 								</label>
 								<div className="relative">
@@ -213,14 +657,16 @@ export default function LoginCard() {
 									</span>
 									<input
 										type="text"
-										placeholder="e.g. STU20260001"
+										placeholder="STU........"
+										value={studentId}
 										onChange={(e) => setStudentId(e.target.value)}
-										className="w-full pl-12 pr-4 py-3 bg-surface-container-highest border-none rounded-lg focus:ring-2 focus:ring-primary/40 focus:bg-white transition-all text-sm outline-none"
+										disabled={isSubmitting || isSubmittingFaceId}
+										className="w-full rounded-lg border-none bg-surface-container-highest py-3 pl-12 pr-4 text-sm outline-none transition-all focus:bg-white focus:ring-2 focus:ring-primary/40"
 									/>
 								</div>
 							</div>
 							<div className="space-y-2">
-								<label className="block font-label text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider ml-1">
+								<label className="ml-1 block font-label text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
 									Password
 								</label>
 								<div className="relative">
@@ -232,13 +678,16 @@ export default function LoginCard() {
 										placeholder="••••••••"
 										autoComplete="current-password"
 										name="password"
+										value={studentPassword}
 										onChange={(e) => setStudentPassword(e.target.value)}
-										className="w-full pl-12 pr-12 py-3 bg-surface-container-highest border-none rounded-lg focus:ring-2 focus:ring-primary/40 focus:bg-white transition-all text-sm outline-none"
+										disabled={isSubmitting || isSubmittingFaceId}
+										className="w-full rounded-lg border-none bg-surface-container-highest py-3 pl-12 pr-12 text-sm outline-none transition-all focus:bg-white focus:ring-2 focus:ring-primary/40"
 									/>
 									<button
 										type="button"
 										onClick={() => setShowPassword((v) => !v)}
-										className="absolute right-4 top-1/2 -translate-y-1/2 text-outline hover:text-primary transition-colors"
+										disabled={isSubmitting || isSubmittingFaceId}
+										className="absolute right-4 top-1/2 -translate-y-1/2 text-outline transition-colors hover:text-primary"
 									>
 										<span className="material-symbols-outlined text-lg">
 											{showPassword ? "visibility_off" : "visibility"}
@@ -250,7 +699,7 @@ export default function LoginCard() {
 					) : (
 						<div className="space-y-5">
 							<div className="space-y-2">
-								<label className="block font-label text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider ml-1">
+								<label className="ml-1 block font-label text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
 									Email
 								</label>
 								<div className="relative">
@@ -259,22 +708,45 @@ export default function LoginCard() {
 									</span>
 									<input
 										type="email"
-										placeholder="admin@scholar-slate.edu"
-										onChange={(e) => setAdminId(e.target.value)}
-										className="w-full pl-12 pr-4 py-3 bg-surface-container-highest border-none rounded-lg focus:ring-2 focus:ring-primary/40 focus:bg-white transition-all text-sm outline-none"
+										placeholder="Your email address..."
+										value={adminId}
+										onChange={(e) => {
+											setAdminId(e.target.value);
+											setErrorMessage("");
+											setFaceIdNotice("");
+										}}
+										disabled={
+											isSubmitting ||
+											isSendingOtp ||
+											isSubmittingFaceId
+										}
+										className="w-full rounded-lg border-none bg-surface-container-highest py-3 pl-12 pr-4 text-sm outline-none transition-all focus:bg-white focus:ring-2 focus:ring-primary/40"
 									/>
 								</div>
 							</div>
 							<div className="space-y-2">
-								<div className="flex justify-between items-center px-1">
-									<label className="block font-label text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">
+								<div className="flex items-center justify-between px-1">
+									<label className="block font-label text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
 										OTP (One-Time Password)
 									</label>
 									<button
 										type="button"
-										className="text-[10px] font-bold text-primary hover:underline"
+										onClick={handleSendAdminOtp}
+										disabled={
+											isSubmitting ||
+											isSendingOtp ||
+											isSubmittingFaceId ||
+											otpCooldown > 0
+										}
+										className="text-[10px] font-bold text-primary hover:underline disabled:no-underline"
 									>
-										Resend
+										{isSendingOtp
+											? "Sending..."
+											: otpCooldown > 0
+												? `Resend in ${otpCooldown}s`
+												: otpSent
+													? "Resend OTP"
+													: "Send OTP"}
 									</button>
 								</div>
 								<div className="relative">
@@ -285,22 +757,26 @@ export default function LoginCard() {
 										type="text"
 										maxLength={6}
 										placeholder="000000"
+										value={adminOTP}
 										onChange={(e) => setAdminOTP(e.target.value)}
-										className="w-full pl-12 pr-4 py-3 bg-surface-container-highest border-none rounded-lg focus:ring-2 focus:ring-primary/40 focus:bg-white transition-all text-sm outline-none tracking-[0.5em] font-mono"
+										disabled={isSubmitting || isSubmittingFaceId}
+										className="w-full rounded-lg border-none bg-surface-container-highest py-3 pl-12 pr-4 font-mono text-sm tracking-[0.5em] outline-none transition-all focus:bg-white focus:ring-2 focus:ring-primary/40"
 									/>
 								</div>
 							</div>
 						</div>
 					)}
 
-					{/* Shared footer */}
 					<div className="flex items-center justify-between px-1">
-						<label className="flex items-center gap-2 cursor-pointer group">
+						<label className="group flex cursor-pointer items-center gap-2">
 							<input
 								type="checkbox"
-								className="w-4 h-4 rounded text-primary focus:ring-primary border-outline-variant/50 bg-surface-container-highest"
+								checked={rememberMe}
+								onChange={(e) => setRememberMe(e.target.checked)}
+								disabled={isSubmitting || isSendingOtp || isSubmittingFaceId}
+								className="h-4 w-4 rounded border-outline-variant/50 bg-surface-container-highest text-primary focus:ring-primary"
 							/>
-							<span className="text-xs text-on-surface-variant group-hover:text-on-surface transition-colors">
+							<span className="text-xs text-on-surface-variant transition-colors group-hover:text-on-surface">
 								Remember me
 							</span>
 						</label>
@@ -314,31 +790,70 @@ export default function LoginCard() {
 						)}
 					</div>
 
+					{errorMessage && (
+						<p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+							{errorMessage}
+						</p>
+					)}
+
+					{successMessage && (
+						<p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+							{successMessage}
+						</p>
+					)}
+
+					{faceIdNotice && (
+						<p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+							{faceIdNotice}
+						</p>
+					)}
+
 					<button
 						type="submit"
-						className="w-full signature-gradient text-white font-semibold py-3.5 rounded-lg shadow-md hover:shadow-lg active:scale-[0.98] transition-all duration-200 text-sm"
+						disabled={isSubmitting || isSubmittingFaceId}
+						className="signature-gradient w-full rounded-lg py-3.5 text-sm font-semibold text-white shadow-md transition-all duration-200 hover:shadow-lg active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
 					>
-						Sign In to Dashboard
+						{isSubmitting ? "Signing In..." : "Sign In to Dashboard"}
 					</button>
 
-					{/* Face ID — admin only */}
 					{tab === "admin" && (
 						<>
 							<div className="relative flex items-center gap-3">
-								<div className="flex-1 h-px bg-slate-200" />
-								<span className="text-xs text-slate-400 font-medium">or</span>
-								<div className="flex-1 h-px bg-slate-200" />
+								<div className="h-px flex-1 bg-slate-200" />
+								<span className="text-xs font-medium text-slate-400">
+									or
+								</span>
+								<div className="h-px flex-1 bg-slate-200" />
 							</div>
+
 							<button
 								type="button"
-								onClick={() => setShowFaceScan(true)}
-								className="w-full flex items-center justify-center gap-2.5 py-3 rounded-lg border border-slate-200 text-slate-700 font-semibold text-sm hover:bg-slate-50 hover:border-indigo-300 transition-all"
+								onClick={() => void handleFaceIdButtonClick()}
+								disabled={
+									!canUseFaceId ||
+									isSubmitting ||
+									isSendingOtp ||
+									isSubmittingFaceId
+								}
+								className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-slate-200 py-3 text-sm font-semibold text-slate-700 transition-all hover:border-indigo-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
 							>
 								<span className="material-symbols-outlined text-[20px] text-indigo-500">
 									face_retouching_natural
 								</span>
-								Sign in with Face ID
+								{isSubmittingFaceId
+									? "Verifying Face ID..."
+									: "Sign in with Face ID"}
 							</button>
+
+							<p className="text-center text-xs text-slate-400">
+								{fingerprintStatus === "failed"
+									? "Face ID is unavailable because this browser could not be identified. Use OTP instead."
+									: fingerprintStatus === "loading"
+										? "Checking browser identity before Face ID login."
+										: canUseFaceId
+											? "Enter your admin email, then verify with a live camera capture."
+											: "Nhap email admin hop le truoc khi dang nhap bang Face ID."}
+							</p>
 						</>
 					)}
 				</form>

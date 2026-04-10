@@ -8,7 +8,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 			<SideNav role="admin" />
 			{/*<div className="ml-64 min-h-screen">{children}</div>*/}
 			<div className="ml-64 min-h-screen flex flex-col">
-				<Header />
+				<Header role="admin" />
 				<div className="flex-1 pt-16">{children}</div>
 			</div>
 		</div>

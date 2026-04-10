@@ -1,26 +1,9 @@
-// Server Component: fetches admin data, passes to ui/admin/table
-// TODO: replace with fetch("http://localhost:3001/admins", { cache: "no-store" })
-import AdminTable, { type Admin } from "@/app/ui/admin/table";
+import { getAdminAccounts } from "@/app/lib/admin-management";
+import AdminTable from "@/app/ui/admin/table";
 
-const MOCK_ADMINS: Admin[] = [
-	{
-		id: "#AD-001",
-		name: "Dr. Victoria Hartwell",
-		email: "v.hartwell@editorial.edu",
-	},
-	{
-		id: "#AD-002",
-		name: "Marcus Chen",
-		email: "m.chen@editorial.edu",
-	},
-	{
-		id: "#AD-003",
-		name: "Priya Nair",
-		email: "p.nair@editorial.edu",
-	},
-];
+export default async function AdminAccountsPage() {
+	const admins = await getAdminAccounts();
 
-export default function AdminAccountsPage() {
 	return (
 		<section className="p-8 flex-1 bg-surface">
 			<div className="mb-8">
@@ -32,7 +15,7 @@ export default function AdminAccountsPage() {
 				</p>
 			</div>
 
-			<AdminTable admins={MOCK_ADMINS} />
+			<AdminTable admins={admins} />
 		</section>
 	);
 }

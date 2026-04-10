@@ -1,6 +1,9 @@
+import { getAdminSettings } from "@/app/lib/admin-management";
 import SettingsPanel from "@/app/ui/settings/panel";
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+	const settings = await getAdminSettings();
+
 	return (
 		<section className="p-8 flex-1 bg-surface">
 			<div className="mb-8">
@@ -9,7 +12,7 @@ export default function SettingsPage() {
 				</h1>
 			</div>
 
-			<SettingsPanel />
+			<SettingsPanel initialSettings={settings} />
 		</section>
 	);
 }
