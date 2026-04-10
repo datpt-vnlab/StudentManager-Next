@@ -45,10 +45,6 @@ export default function SettingsPanel({
 	const [sessionTimeout, setSessionTimeout] = useState(
 		String(initialSettings.session_timeout),
 	);
-	const [faceIdEnabled, setFaceIdEnabled] = useState(
-		initialSettings.face_id_enabled,
-	);
-	const [enrolledCount] = useState(0);
 	const [errorMessage, setErrorMessage] = useState("");
 	const [saved, setSaved] = useState(false);
 	const [isSaving, setIsSaving] = useState(false);
@@ -61,7 +57,6 @@ export default function SettingsPanel({
 		try {
 			const response = await fetch("/api/settings", {
 				body: JSON.stringify({
-					face_id_enabled: faceIdEnabled,
 					session_timeout: Number(sessionTimeout),
 				}),
 				headers: {
@@ -94,11 +89,7 @@ export default function SettingsPanel({
 				onSessionTimeoutChange={setSessionTimeout}
 			/>
 
-			<FaceIdSection
-				enabled={faceIdEnabled}
-				onEnabledChange={setFaceIdEnabled}
-				enrolledCount={enrolledCount}
-			/>
+			<FaceIdSection />
 
 			{errorMessage && (
 				<p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
