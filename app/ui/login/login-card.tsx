@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { FaceLandmarker as MediaPipeFaceLandmarker } from "@mediapipe/tasks-vision";
 import {
 	getCachedBrowserIdentity,
 	getBrowserIdentity,
@@ -16,6 +17,170 @@ import {
 	captureVisibleVideoFrame,
 	dataUrlToFile,
 } from "@/app/lib/face-id-camera";
+
+const FACE_CAPTURE_VIEWPORT = {
+	height: 770,
+	width: 640,
+} as const;
+const FACE_ANALYSIS_INTERVAL_MS = 90;
+const FACE_LOGIN_HOLD_DURATION_MS = 450;
+const FACE_LOGIN_MIN_WIDTH = 0.22;
+const FACE_LOGIN_MIN_HEIGHT = 0.32;
+const FACE_LOGIN_MAX_WIDTH = 0.74;
+const FACE_LOGIN_MAX_HEIGHT = 0.88;
+const FACE_LOGIN_CENTER_X_TOLERANCE = 0.14;
+const FACE_LOGIN_CENTER_Y_TOLERANCE = 0.17;
+const FACE_LOGIN_YAW_TOLERANCE = 0.045;
+const FACE_LOGIN_PITCH_TOLERANCE = 0.04;
+const MEDIAPIPE_WASM_ROOT =
+	"https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm";
+const FACE_LANDMARKER_MODEL_ASSET =
+	"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+
+type Point2D = {
+	x: number;
+	y: number;
+};
+
+type FaceLoginAnalysis = {
+	holdReady: boolean;
+	message: string;
+};
+
+const FACE_INDICES = {
+	chin: 152,
+	forehead: 10,
+	leftCheek: 234,
+	leftEyeInner: 133,
+	leftEyeOuter: 33,
+	mouthLeft: 61,
+	mouthRight: 291,
+	noseTip: 1,
+	rightCheek: 454,
+	rightEyeInner: 362,
+	rightEyeOuter: 263,
+} as const;
+
+function averagePoints(...points: Array<Point2D | undefined>) {
+	const valid = points.filter(Boolean) as Point2D[];
+
+	if (valid.length === 0) {
+		return null;
+	}
+
+	return {
+		x: valid.reduce((sum, point) => sum + point.x, 0) / valid.length,
+		y: valid.reduce((sum, point) => sum + point.y, 0) / valid.length,
+	};
+}
+
+function getPoint(landmarks: Point2D[], index: number) {
+	return landmarks[index];
+}
+
+function analyzeLoginFace(landmarks: Point2D[]): FaceLoginAnalysis {
+	const leftEye = averagePoints(
+		getPoint(landmarks, FACE_INDICES.leftEyeOuter),
+		getPoint(landmarks, FACE_INDICES.leftEyeInner),
+	);
+	const rightEye = averagePoints(
+		getPoint(landmarks, FACE_INDICES.rightEyeOuter),
+		getPoint(landmarks, FACE_INDICES.rightEyeInner),
+	);
+	const noseTip = getPoint(landmarks, FACE_INDICES.noseTip);
+	const forehead = getPoint(landmarks, FACE_INDICES.forehead);
+	const chin = getPoint(landmarks, FACE_INDICES.chin);
+	const mouth = averagePoints(
+		getPoint(landmarks, FACE_INDICES.mouthLeft),
+		getPoint(landmarks, FACE_INDICES.mouthRight),
+	);
+	const leftCheek = getPoint(landmarks, FACE_INDICES.leftCheek);
+	const rightCheek = getPoint(landmarks, FACE_INDICES.rightCheek);
+
+	if (
+		!leftEye ||
+		!rightEye ||
+		!noseTip ||
+		!forehead ||
+		!chin ||
+		!mouth ||
+		!leftCheek ||
+		!rightCheek
+	) {
+		return {
+			holdReady: false,
+			message: "Keep your full face inside the frame.",
+		};
+	}
+
+	const eyeMid = averagePoints(leftEye, rightEye);
+
+	if (!eyeMid) {
+		return {
+			holdReady: false,
+			message: "Look straight at the camera.",
+		};
+	}
+
+	const centerX = (leftCheek.x + rightCheek.x) / 2;
+	const centerY = (forehead.y + chin.y) / 2;
+	const faceWidth = rightCheek.x - leftCheek.x;
+	const faceHeight = chin.y - forehead.y;
+
+	if (faceWidth < FACE_LOGIN_MIN_WIDTH || faceHeight < FACE_LOGIN_MIN_HEIGHT) {
+		return {
+			holdReady: false,
+			message: "Move a little closer.",
+		};
+	}
+
+	if (faceWidth > FACE_LOGIN_MAX_WIDTH || faceHeight > FACE_LOGIN_MAX_HEIGHT) {
+		return {
+			holdReady: false,
+			message: "Move a little farther back.",
+		};
+	}
+
+	if (
+		Math.abs(centerX - 0.5) > FACE_LOGIN_CENTER_X_TOLERANCE ||
+		Math.abs(centerY - 0.5) > FACE_LOGIN_CENTER_Y_TOLERANCE
+	) {
+		return {
+			holdReady: false,
+			message: "Center your face in the frame.",
+		};
+	}
+
+	const yaw = (noseTip.x - eyeMid.x) / Math.max(Math.abs(rightEye.x - leftEye.x), 0.001);
+	const pitch =
+		(mouth.y - noseTip.y - (noseTip.y - eyeMid.y)) /
+		Math.max(chin.y - forehead.y, 0.001);
+
+	if (Math.abs(yaw) > FACE_LOGIN_YAW_TOLERANCE) {
+		return {
+			holdReady: false,
+			message:
+				yaw > 0
+					? "Turn slightly to the left."
+					: "Turn slightly to the right.",
+		};
+	}
+
+	if (Math.abs(pitch) > FACE_LOGIN_PITCH_TOLERANCE) {
+		return {
+			holdReady: false,
+			message:
+				pitch > 0
+					? "Lower your chin a little."
+					: "Raise your chin a little.",
+		};
+	}
+
+	return {
+		holdReady: true,
+		message: "Hold still.",
+	};
+}
 
 type Tab = "student" | "admin";
 type FaceIdLoginPhase =
@@ -78,10 +243,16 @@ function FaceIdLoginOverlay({
 	const videoRef = useRef<HTMLVideoElement | null>(null);
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const streamRef = useRef<MediaStream | null>(null);
+	const landmarkerRef = useRef<MediaPipeFaceLandmarker | null>(null);
+	const animationFrameRef = useRef<number | null>(null);
+	const lastAnalysisAtRef = useRef(0);
+	const holdStartedAtRef = useRef<number | null>(null);
+	const isCapturingRef = useRef(false);
 	const [phase, setPhase] = useState<FaceIdLoginPhase>("requesting_camera");
 	const [statusMessage, setStatusMessage] = useState(
 		"Requesting access to your camera...",
 	);
+	const [holdProgress, setHoldProgress] = useState(0);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -111,8 +282,43 @@ function FaceIdLoginOverlay({
 					await videoRef.current.play();
 				}
 
+				setStatusMessage("Loading face guidance...");
+				const vision = await import("@mediapipe/tasks-vision");
+
+				if (cancelled) {
+					return;
+				}
+
+				const wasmFileset =
+					await vision.FilesetResolver.forVisionTasks(
+						MEDIAPIPE_WASM_ROOT,
+					);
+
+				if (cancelled) {
+					return;
+				}
+
+				const landmarker =
+					await vision.FaceLandmarker.createFromOptions(wasmFileset, {
+						baseOptions: {
+							modelAssetPath: FACE_LANDMARKER_MODEL_ASSET,
+						},
+						minFaceDetectionConfidence: 0.6,
+						minFacePresenceConfidence: 0.6,
+						minTrackingConfidence: 0.6,
+						numFaces: 1,
+						outputFacialTransformationMatrixes: false,
+						runningMode: "VIDEO",
+					});
+
+				if (cancelled) {
+					landmarker.close();
+					return;
+				}
+
+				landmarkerRef.current = landmarker;
 				setPhase("capturing");
-				setStatusMessage("Keep only one face in frame, then capture to continue.");
+				setStatusMessage("Look straight at the camera and hold still.");
 			} catch {
 				setPhase("error");
 				setStatusMessage(
@@ -125,6 +331,12 @@ function FaceIdLoginOverlay({
 
 		return () => {
 			cancelled = true;
+			if (animationFrameRef.current !== null) {
+				cancelAnimationFrame(animationFrameRef.current);
+				animationFrameRef.current = null;
+			}
+			landmarkerRef.current?.close();
+			landmarkerRef.current = null;
 			const stream = streamRef.current;
 			if (stream) {
 				for (const track of stream.getTracks()) {
@@ -135,16 +347,27 @@ function FaceIdLoginOverlay({
 		};
 	}, []);
 
-	const handleCapture = async () => {
-		if (!videoRef.current || !canvasRef.current || isSubmitting) {
+	const handleCapture = useCallback(async () => {
+		if (
+			!videoRef.current ||
+			!canvasRef.current ||
+			isSubmitting ||
+			isCapturingRef.current
+		) {
 			return;
 		}
 
 		try {
+			isCapturingRef.current = true;
 			setPhase("submitting");
 			setStatusMessage("Verifying Face ID...");
-			const dataUrl = captureVisibleVideoFrame(videoRef.current, canvasRef.current);
-			console.log("Face ID login captured image:", dataUrl);
+			setHoldProgress(0);
+			holdStartedAtRef.current = null;
+			const dataUrl = captureVisibleVideoFrame(
+				videoRef.current,
+				canvasRef.current,
+				FACE_CAPTURE_VIEWPORT,
+			);
 			const file = dataUrlToFile(dataUrl, `face-login-${Date.now()}.jpg`);
 
 			if (!file) {
@@ -159,8 +382,107 @@ function FaceIdLoginOverlay({
 					? error.message
 					: "Unable to capture the current frame.",
 			);
+		} finally {
+			isCapturingRef.current = false;
 		}
-	};
+	}, [isSubmitting, onSubmit]);
+
+	useEffect(() => {
+		if (
+			phase !== "capturing" ||
+			!videoRef.current ||
+			!landmarkerRef.current
+		) {
+			if (animationFrameRef.current !== null) {
+				cancelAnimationFrame(animationFrameRef.current);
+				animationFrameRef.current = null;
+			}
+			holdStartedAtRef.current = null;
+			setHoldProgress(0);
+			return;
+		}
+
+		const tick = (timestamp: number) => {
+			animationFrameRef.current = requestAnimationFrame(tick);
+
+			if (
+				timestamp - lastAnalysisAtRef.current <
+				FACE_ANALYSIS_INTERVAL_MS
+			) {
+				return;
+			}
+
+			lastAnalysisAtRef.current = timestamp;
+
+			if (
+				!videoRef.current ||
+				!landmarkerRef.current ||
+				isCapturingRef.current ||
+				isSubmitting
+			) {
+				return;
+			}
+
+			if (
+				videoRef.current.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+			) {
+				return;
+			}
+
+			const result = landmarkerRef.current.detectForVideo(
+				videoRef.current,
+				performance.now(),
+			);
+			const landmarks = result.faceLandmarks[0] as Point2D[] | undefined;
+
+			if (!landmarks || result.faceLandmarks.length !== 1) {
+				holdStartedAtRef.current = null;
+				setHoldProgress(0);
+				setStatusMessage(
+					result.faceLandmarks.length > 1
+						? "Keep only one face in frame."
+						: "Place your face in the frame.",
+				);
+				return;
+			}
+
+			const analysis = analyzeLoginFace(landmarks);
+			setStatusMessage(analysis.message);
+
+			if (!analysis.holdReady) {
+				holdStartedAtRef.current = null;
+				setHoldProgress(0);
+				return;
+			}
+
+			if (holdStartedAtRef.current === null) {
+				holdStartedAtRef.current = timestamp;
+			}
+
+			const progress = Math.min(
+				(timestamp - holdStartedAtRef.current) / FACE_LOGIN_HOLD_DURATION_MS,
+				1,
+			);
+			setHoldProgress(progress);
+
+			if (progress >= 1) {
+				if (animationFrameRef.current !== null) {
+					cancelAnimationFrame(animationFrameRef.current);
+					animationFrameRef.current = null;
+				}
+				void handleCapture();
+			}
+		};
+
+		animationFrameRef.current = requestAnimationFrame(tick);
+
+		return () => {
+			if (animationFrameRef.current !== null) {
+				cancelAnimationFrame(animationFrameRef.current);
+				animationFrameRef.current = null;
+			}
+		};
+	}, [handleCapture, isSubmitting, phase]);
 
 	const canClose = phase !== "submitting" && !isSubmitting;
 
@@ -184,16 +506,27 @@ function FaceIdLoginOverlay({
 					</button>
 				</div>
 
-				<div className="grid gap-0 lg:min-h-[720px] lg:grid-cols-[1.5fr_0.9fr]">
-					<div className="relative min-h-[440px] bg-black lg:min-h-[720px]">
-						<video
-							ref={videoRef}
-							autoPlay
-							muted
-							playsInline
-							className="h-full min-h-[440px] w-full object-cover lg:min-h-[720px]"
-						/>
-						<canvas ref={canvasRef} className="hidden" />
+				<div className="grid gap-0 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.8fr)]">
+					<div className="relative flex min-h-[440px] items-center justify-center bg-black p-4 sm:p-6 lg:min-h-[720px]">
+						<div className="relative aspect-[640/770] h-full max-h-[70vh] w-full max-w-[640px] overflow-hidden rounded-[32px] bg-black shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
+							<video
+								ref={videoRef}
+								autoPlay
+								muted
+								playsInline
+								className="absolute inset-0 h-full w-full object-cover"
+							/>
+							<canvas ref={canvasRef} className="hidden" />
+							<div className="pointer-events-none absolute inset-0 border border-white/10" />
+							<div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+								<div className="relative h-[62%] w-[58%] rounded-[999px] border-2 border-cyan-300/85 shadow-[0_0_0_1px_rgba(103,232,249,0.15),0_0_18px_rgba(34,211,238,0.14)]">
+									<div className="absolute left-1/2 top-0 h-5 w-px -translate-x-1/2 -translate-y-1/2 bg-cyan-200/75" />
+									<div className="absolute bottom-0 left-1/2 h-5 w-px -translate-x-1/2 translate-y-1/2 bg-cyan-200/75" />
+									<div className="absolute left-0 top-1/2 h-px w-5 -translate-x-1/2 -translate-y-1/2 bg-cyan-200/75" />
+									<div className="absolute right-0 top-1/2 h-px w-5 translate-x-1/2 -translate-y-1/2 bg-cyan-200/75" />
+								</div>
+							</div>
+						</div>
 
 						{phase === "submitting" && (
 							<div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-slate-950/70">
@@ -225,21 +558,24 @@ function FaceIdLoginOverlay({
 						</div>
 
 						<div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-							<p className="text-sm font-semibold">Before you capture</p>
+							<p className="text-sm font-semibold">Front face check</p>
 							<p className="text-sm text-white/60">
-								Look straight at the camera and keep your face clearly visible in the frame.
+								Auto capture will run when your face is centered and looking straight at the camera.
 							</p>
-							<button
-								type="button"
-								onClick={() => void handleCapture()}
-								disabled={phase !== "capturing" || isSubmitting}
-								className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-300 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
-							>
-								<span className="material-symbols-outlined text-[18px]">
-									photo_camera
-								</span>
-								{isSubmitting ? "Verifying Face ID..." : "Capture and Sign In"}
-							</button>
+							<div className="space-y-2">
+								<div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.2em] text-white/45">
+									<span>Auto Capture</span>
+									<span>{Math.round(holdProgress * 100)}%</span>
+								</div>
+								<div className="h-3 overflow-hidden rounded-full bg-white/10">
+									<div
+										className="h-full rounded-full bg-cyan-300 transition-[width] duration-100"
+										style={{
+											width: `${holdProgress * 100}%`,
+										}}
+									/>
+								</div>
+							</div>
 							<button
 								type="button"
 								onClick={onCancel}
@@ -257,7 +593,6 @@ function FaceIdLoginOverlay({
 }
 
 export default function LoginCard() {
-	const initialBrowserIdentity = getCachedBrowserIdentity();
 	const [tab, setTab] = useState<Tab>("student");
 	const [showPassword, setShowPassword] = useState(false);
 	const [studentId, setStudentId] = useState("");
@@ -272,11 +607,9 @@ export default function LoginCard() {
 	const [isSubmittingFaceId, setIsSubmittingFaceId] = useState(false);
 	const [isFaceIdOverlayOpen, setIsFaceIdOverlayOpen] = useState(false);
 	const [fingerprintStatus, setFingerprintStatus] =
-		useState<BrowserFingerprintStatus>(
-			initialBrowserIdentity ? "ready" : "idle",
-		);
+		useState<BrowserFingerprintStatus>("idle");
 	const [browserIdentity, setBrowserIdentity] = useState<BrowserIdentity | null>(
-		initialBrowserIdentity,
+		null,
 	);
 	const [errorMessage, setErrorMessage] = useState("");
 	const [successMessage, setSuccessMessage] = useState("");
@@ -289,6 +622,17 @@ export default function LoginCard() {
 		setSuccessMessage("");
 		setFaceIdNotice("");
 	};
+
+	useEffect(() => {
+		const cachedIdentity = getCachedBrowserIdentity();
+
+		if (!cachedIdentity) {
+			return;
+		}
+
+		setBrowserIdentity(cachedIdentity);
+		setFingerprintStatus("ready");
+	}, []);
 
 	useEffect(() => {
 		if (tab !== "admin") {

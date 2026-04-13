@@ -1,5 +1,8 @@
 "use client";
 
+const DEFAULT_CAPTURE_WIDTH = 640;
+const DEFAULT_CAPTURE_HEIGHT = 770;
+
 function clamp(value: number, min: number, max: number) {
 	return Math.min(Math.max(value, min), max);
 }
@@ -22,6 +25,10 @@ export function dataUrlToFile(dataUrl: string, filename: string) {
 export function captureVisibleVideoFrame(
 	video: HTMLVideoElement,
 	canvas: HTMLCanvasElement,
+	outputSize: { width: number; height: number } = {
+		height: DEFAULT_CAPTURE_HEIGHT,
+		width: DEFAULT_CAPTURE_WIDTH,
+	},
 ) {
 	const videoWidth = video.videoWidth || 1280;
 	const videoHeight = video.videoHeight || 720;
@@ -41,8 +48,8 @@ export function captureVisibleVideoFrame(
 	const sourceWidth = clamp(displayedWidth / scale, 1, videoWidth - sourceX);
 	const sourceHeight = clamp(displayedHeight / scale, 1, videoHeight - sourceY);
 
-	canvas.width = Math.round(sourceWidth);
-	canvas.height = Math.round(sourceHeight);
+	canvas.width = outputSize.width;
+	canvas.height = outputSize.height;
 
 	const context = canvas.getContext("2d");
 
@@ -50,6 +57,7 @@ export function captureVisibleVideoFrame(
 		throw new Error("Unable to capture the current frame.");
 	}
 
+	context.clearRect(0, 0, canvas.width, canvas.height);
 	context.drawImage(
 		video,
 		sourceX,
