@@ -23,7 +23,23 @@ const FACE_ID_ERROR_MESSAGES: Record<string, string> = {
 		"Anh co nhieu khuon mat. Vui long chup mot minh.",
 	NO_FACE_DETECTED: "Khong nhan dien duoc khuon mat. Vui long chup lai.",
 	WORKER_TIMEOUT: "He thong xu ly qua lau. Vui long thu lai.",
+	// --- Adaptive liveness (silent / challenge) error codes ---
+	// These are mapped for debug logging / future surfacing only; the login UX
+	// shows a generic "Couldn't verify you, please try again" regardless.
+	ANTISPOOF_FAILED: "Khong the xac thuc (anti-spoof). Vui long thu lai.",
+	CHALLENGE_EXPIRED: "Thao tac qua thoi gian cho. Vui long thu lai.",
+	CHALLENGE_FAILED: "Khong nhan duoc dung thao tac. Vui long thu lai.",
+	LIVENESS_FAILED: "Khong the xac thuc la nguoi that. Vui long thu lai.",
+	NONCE_EXPIRED: "Phien da het han. Vui long thu lai.",
+	NONCE_INVALID: "Phien khong hop le. Vui long thu lai.",
 };
+
+/**
+ * Generic, non-leaky message shown to end users when adaptive liveness fails.
+ * Never surface raw errorCode values — they teach attackers what to tune.
+ */
+export const FACE_LOGIN_GENERIC_FAILURE =
+	"Couldn't verify you, please try again";
 
 export function mapFaceIdErrorMessage(
 	errorCode: unknown,
